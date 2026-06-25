@@ -1,0 +1,7 @@
+Plantilla de Inventario para Digitalización de Librería;;;;;;;
+;;;;;;;
+ID / Código;Título del Libro;Autor;Editorial;Asignatura;Cantidad;Cantidad_Disponible;Estado (Nuevo/Usado)
+LIB-0001;Cien años de soledad;Gabriel García Márquez;Editorial Sudamericana;Ficción / Realismo Mágico;3;2;Nuevo
+LIB-0002;Don Quijote de la Mancha;Miguel de Cervantes;Real Academia Española;Clásicos;1;1;Usado
+LIB-0003;Breves respuestas a las grandes preguntas;Stephen Hawking;Crítica;Ciencia / Divulgación;5;4;Nuevo
+LIB-0004;El Alquimista;Paulo Coelho;HarperOne;Autoayuda / Ficción;2;1;Nuevo
