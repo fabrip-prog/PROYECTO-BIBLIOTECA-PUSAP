@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Biblioteca (MVP)</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>Panel de Control - Sistema de Biblioteca</h1>
+
+    <section class="seccion-formulario">
+        <form id="form-alta-libro">
+            <h3>Registrar Nuevo Libro</h3>
+            <div class="form-group">
+                <label for="libro-id">ID del Libro:</label>
+                <input type="number" id="libro-id" name="libroId" required min="1" placeholder="Ej: 101">
+            </div>
+            <div class="form-group">
+                <label for="libro-titulo">Título del Libro:</label>
+                <input type="text" id="libro-titulo" name="titulo" required placeholder="Ej: Don Quijote">
+            </div>
+            <div class="form-group">
+                <label for="libro-autor">Autor:</label>
+                <input type="text" id="libro-autor" name="autor" required placeholder="Ej: Miguel de Cervantes">
+            </div>
+            <div class="form-group">
+                <label for="libro-stock">Stock Inicial:</label>
+                <input type="number" id="libro-stock" name="stock" required min="0" value="1">
+            </div>
+            <div class="form-group">
+                <label for="libro-isbn">ISBN:</label>
+                <input type="text" id="libro-isbn" name="isbn" required placeholder="Ej: 978-3-16-148410-0">
+            </div>
+            <button type="submit">Guardar Libro</button>
+        </form>
+    </section>
+
+    <section class="seccion-formulario">
+        <form id="form-nueva-reserva">
+            <h3>Registrar Nueva Reserva</h3>
+            <div class="form-group">
+                <label for="reserva-id">ID de Reserva:</label>
+                <input type="number" id="reserva-id" name="reservaId" required min="1" placeholder="Ej: 1">
+            </div>
+            <div class="form-group">
+                <label for="reserva-libro-id">ID del Libro a Reservar:</label>
+                <input type="number" id="reserva-libro-id" name="idLibro" required min="1" placeholder="Ej: 101">
+            </div>
+            <div class="form-group">
+                <label for="reserva-usuario">Nombre del Usuario:</label>
+                <input type="text" id="reserva-usuario" name="usuario" required placeholder="Ej: Juan Pérez">
+            </div>
+            <div class="form-group">
+                <label for="reserva-fecha">Fecha de Reserva:</label>
+                <input type="date" id="reserva-fecha" name="fecha" required>
+            </div>
+            <button type="submit">Confirmar Reserva</button>
+        </form>
+    </section>
+
+    <script src="app.js"></script>
+</body>
+</html>
