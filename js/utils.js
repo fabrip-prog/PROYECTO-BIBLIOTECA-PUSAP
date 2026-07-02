@@ -1,3 +1,26 @@
+// Simulación de las Tablas Relacionales del Motor SQL
+export const db_tablas_maestras = {
+    estados: [
+        { id: 1, condicion: '1 usado/nuevo' }
+    ],
+    asignatura: [
+        { id: 1, nombre: 'Historia/Economía' },
+        { id: 2, nombre: 'Derecho' },
+        { id: 3, nombre: 'Filosofía' },
+        { id: 4, nombre: 'Economia' }
+    ],
+    editoriales: [
+        { id: 1, nombre: 'Siglo Veintiuno de Argentina Editores (en coedición con el Instituto Di Tella)' },
+        { id: 2, nombre: 'Marcos Lerner Editora Cordoba' },
+        { id: 3, nombre: 'LexisNexis Abeledo-Perrot' },
+        { id: 4, nombre: 'LexisNexis' },
+        { id: 5, nombre: 'Virtudes Editorial Universitaria' },
+        { id: 6, nombre: 'Astrea' },
+        { id: 7, nombre: 'Ariel Sociedad Económica.' },
+        { id: 8, nombre: 'Fondo de Cultura Económica' }
+    ]
+};
+
 export function transformarCSV(textoBruto) {
     const lineas = textoBruto.split(/\r?\n/);
     const matrizDatos = [];
@@ -5,7 +28,6 @@ export function transformarCSV(textoBruto) {
     for (let i = 0; i < lineas.length; i++) {
         const linea = lineas[i].trim();
         
-        // Ignoramos líneas vacías, decorativas o que contengan los títulos de las columnas
         if (linea === "" || 
             linea.startsWith("Plantilla") || 
             /^;+$/.test(linea) || 
@@ -19,4 +41,50 @@ export function transformarCSV(textoBruto) {
         matrizDatos.push(celdas);
     }
     return matrizDatos;
+}
+
+/**
+ * BLINDAJE SQL: Valida restricciones de integridad, tipos de datos, nulos y llaves foráneas.
+ * Simula las restricciones de la base de datos relacional formal.
+ */
+export function validarRestriccionesSQL(libro) {
+    // 1. Blindar ante Campos Nulos u Obligatorios (NOT NULL)
+    if (libro.codigo === undefined || libro.codigo === null || String(libro.codigo).trim() === "") {
+        return { valido: false, error: "VIOLACIÓN DE INTEGRIDAD: El campo 'codigo' (PK) no puede ser NULO." };
+    }
+    if (!libro.titulo || String(libro.titulo).trim() === "") {
+        return { valido: false, error: "VIOLACIÓN DE INTEGRIDAD: El campo 'titulo' posee una restricción NOT NULL." };
+    }
+    if (!libro.autor || String(libro.autor).trim() === "") {
+        return { valido: false, error: "VIOLACIÓN DE INTEGRIDAD: El campo 'autor' posee una restricción NOT NULL." };
+    }
+
+    // 2. Blindar ante Registros Inválidos o tipos incorrectos (Restricciones CHECK)
+    if (isNaN(libro.cantidad) || libro.cantidad < 0) {
+        return { valido: false, error: "RESTRICCIÓN CHECK VIOLADA: 'cantidad' debe ser un entero positivo (>= 0)." };
+    }
+    if (isNaN(libro.cantidad_disponible) || libro.cantidad_disponible < 0) {
+        return { valido: false, error: "RESTRICCIÓN CHECK VIOLADA: 'cantidad_disponible' debe ser un entero positivo (>= 0)." };
+    }
+    if (libro.cantidad_disponible > libro.cantidad) {
+        return { valido: false, error: "RESTRICCIÓN CHECK VIOLADA: La cantidad disponible no puede ser mayor al stock total." };
+    }
+
+    // 3. Blindar ante Violaciones de Llaves Foráneas (FOREIGN KEY CONSTRAINTS)
+    const existeEditorial = db_tablas_maestras.editoriales.some(e => e.id === Number(libro.id_editorial));
+    if (!existeEditorial) {
+        return { valido: false, error: `VIOLACIÓN DE LLAVE FORÁNEA: id_editorial (${libro.id_editorial}) no existe en la tabla 'editoriales'.` };
+    }
+
+    const existeAsignatura = db_tablas_maestras.asignatura.some(a => a.id === Number(libro.id_asignatura));
+    if (!existeAsignatura) {
+        return { valido: false, error: `VIOLACIÓN DE LLAVE FORÁNEA: id_asignatura (${libro.id_asignatura}) no existe en la tabla 'asignatura'.` };
+    }
+
+    const existeEstado = db_tablas_maestras.estados.some(es => es.id === Number(libro.id_estado));
+    if (!existeEstado) {
+        return { valido: false, error: `VIOLACIÓN DE LLAVE FORÁNEA: id_estado (${libro.id_estado}) no existe en la tabla 'estados'.` };
+    }
+
+    return { valido: true, error: null };
 }

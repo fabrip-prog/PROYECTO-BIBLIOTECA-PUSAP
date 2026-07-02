@@ -14,6 +14,9 @@
 
     <main class="contenedor">
         
+        <!-- ========================================== -->
+        <!-- 1. INVENTARIO DE LIBROS                    -->
+        <!-- ========================================== -->
         <section class="modulo">
             <h2>1. Inventario de Libros</h2>
             
@@ -57,8 +60,10 @@
                 <h3>Catálogo Disponibilidad</h3>
 
                 <div style="margin-bottom: 15px;">
-                <label for="archivo-excel-libros" style="font-size: 14px; font-weight: bold;">Cargar Inventario (CSV): </label>
-                <input type="file" id="archivo-excel-libros" accept=".csv">
+                    <label for="archivo-excel-libros" style="font-size: 14px; font-weight: bold;">Cargar Inventario (CSV): </label>
+                    <input type="file" id="archivo-excel-libros" accept=".csv">
+                    <button id="btn-cargar-predef" class="btn" type="button">Cargar CSV por defecto</button>
+                    <button id="btn-exportar-csv" class="btn" type="button">Exportar inventario a CSV</button>
                 </div>
 
                 <table id="tabla-inventario">
@@ -75,16 +80,6 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td>LIB-0001</td>
-                            <td>Cien años de soledad</td>
-                            <td>Gabriel García Márquez</td>
-                            <td>Editorial Sudamericana</td>
-                            <td>Ficción / Realismo Mágico</td>
-                            <td>3</td>
-                            <td>2</td>
-                            <td>Nuevo</td>
-                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -92,29 +87,33 @@
 
         <hr>
 
+        <!-- ========================================== -->
+        <!-- 2. CONTROL DE RESERVAS (ESTA ES LA PARTE QUE SE REEMPLAZÓ) -->
+        <!-- ========================================== -->
         <section class="modulo">
             <h2>2. Control de Reservas</h2>
 
-            <form id="form-reserva" class="formulario">
+            <div class="formulario">
                 <h3>Registrar Nueva Reserva</h3>
                 <div class="grupo-input">
-                    <label for="reserva-id-libro">ID Libro a Reservar:</label>
-                    <input type="text" id="reserva-id-libro" placeholder="Ej: LIB-0001" required>
+                    <label for="id-libro-reserva">ID Libro a Reservar:</label>
+                    <input type="text" id="id-libro-reserva" placeholder="Ej: 1" required>
                 </div>
                 <div class="grupo-input">
-                    <label for="reserva-id">ID Reserva:</label>
-                    <input type="text" id="reserva-id" placeholder="Ej: RES-0005" required>
+                    <label for="id-reserva">ID Reserva:</label>
+                    <input type="text" id="id-reserva" placeholder="Ej: RES-0005" required>
                 </div>
                 <div class="grupo-input">
-                    <label for="reserva-usuario">Usuario / Lector:</label>
-                    <input type="text" id="reserva-usuario" placeholder="Ej: Carlos Gómez" required>
+                    <label for="usuario-lector">Usuario / Lector:</label>
+                    <input type="text" id="usuario-lector" placeholder="Ej: Carlos Gómez" required>
                 </div>
                 <div class="grupo-input">
-                    <label for="reserva-fecha">Fecha Reserva:</label>
-                    <input type="date" id="reserva-fecha" required>
+                    <label for="fecha-reserva">Fecha Reserva:</label>
+                    <input type="date" id="fecha-reserva" required>
                 </div>
-                <button type="submit" class="btn btn-reserva">Confirmar Reserva</button>
-            </form>
+                <!-- Usamos tipo button para manejarlo de forma limpia desde reservas.js sin recargar la página -->
+                <button type="button" id="btn-confirmar-reserva" class="btn btn-reserva">Confirmar Reserva</button>
+            </div>
 
             <div class="tabla-contenedor">
                 <h3>Historial de Reservas</h3>
@@ -129,13 +128,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td>LIB-0001</td>
-                            <td>RES-0001</td>
-                            <td>Gabriel</td>
-                            <td>2026-05-11</td>
-                            <td><span class="estado activa">activa</span></td>
-                        </tr>
+                        <!-- Las filas del historial se inyectan dinámicamente aquí -->
                     </tbody>
                 </table>
             </div>
@@ -143,6 +136,7 @@
 
     </main>
 
-    <script type="module" src="js/app.js"></script>
+    <!-- Script principal de Electron -->
+    <script type="module" src="js/App.js"></script>
 </body>
 </html>

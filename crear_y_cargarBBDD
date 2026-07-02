@@ -1,3 +1,7 @@
+-- ==========================================
+-- PUNTO 1: DEFINICIÓN DE ESTRUCTURA (DDL)
+-- ==========================================
+
 CREATE TABLE IF NOT EXISTS "estados" (
 	"id"	INTEGER,
 	"condicion"	TEXT NOT NULL UNIQUE,
@@ -22,17 +26,23 @@ CREATE TABLE IF NOT EXISTS "libros" (
 	"autor"	TEXT NOT NULL,
 	"id_editorial"	INTEGER,
 	"cantidad"	INTEGER DEFAULT 1,
+	"cantidad_disponible" INTEGER DEFAULT 1, -- Requisito para control de reservas
 	"id_estado"	INTEGER,
 	"numero_curso"	INTEGER,
 	"id_asignatura"	INTEGER,
 	PRIMARY KEY("codigo"),
 	FOREIGN KEY("id_asignatura") REFERENCES "asignatura"("id"),
 	FOREIGN KEY("id_editorial") REFERENCES "editoriales"("id"),
-	FOREIGN KEY("id_estado") REFERENCES "estados"("id")
+	FOREIGN KEY("id_estado") REFERENCES "estados"("id"),
+    
+    -- Restricciones de integridad lógica y consistencia de stock
+    CONSTRAINT chk_stock_positivo CHECK ("cantidad" >= 0),
+    CONSTRAINT chk_disponible_positivo CHECK ("cantidad_disponible" >= 0),
+    CONSTRAINT chk_consistencia_stock CHECK ("cantidad_disponible" <= "cantidad")
 );
 
 -- ==========================================
--- PUNTO 2: CARGA DE DATOS
+-- PUNTO 2: CARGA DE DATOS (DML)
 -- ==========================================
 
 INSERT OR IGNORE INTO estados (id, condicion) VALUES (1, '1 usado/nuevo');
@@ -53,12 +63,12 @@ INSERT OR IGNORE INTO editoriales (id, nombre) VALUES
 (7, 'Ariel Sociedad Económica.'),
 (8, 'Fondo de Cultura Económica');
 
-INSERT OR REPLACE INTO libros (codigo, titulo, autor, id_editorial, cantidad, id_estado, numero_curso, id_asignatura) VALUES
-(1, 'Historia Socioeconómica de la Argentina. 1776-1860.', 'Jonathan Brown', 1, 1, 1, 214, 1),
-(2, 'Manual de Derecho Penal- Parte Especial (Segunda Edición)', 'Ricardo C. Nuñez - Victor F. Reinaldi', 2, 1, 1, 27, 2),
-(3, 'Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II', 'Francisco J. D''Albora - Nicolás F. D''Albora', 3, 1, 1, 42, 2),
-(4, 'Tratado de los Cheques', 'Osvaldo R. Gómez Leo', 4, 1, 1, 39, 2),
-(5, 'Curso de Filosofia', 'Carlos Escobar Saravia', 5, 1, 1, 34, 3),
-(6, 'Títulos de Crédito', 'Ignacio A. Escuti', 6, 1, 1, 38, 2),
-(7, 'El Ciclo de la llusión y el Desencanto', 'Pablo Gerchunoff - Lucas Llach', 7, 1, 1, 213, 4),
-(8, 'Teoría Microeconómica', 'John P. Gould-Edward P. Lazear', 8, 1, 1, 216, 4);
+INSERT OR REPLACE INTO libros (codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, numero_curso, id_asignatura) VALUES
+(1, 'Historia Socioeconómica de la Argentina. 1776-1860.', 'Jonathan Brown', 1, 1, 1, 1, 214, 1),
+(2, 'Manual de Derecho Penal- Parte Especial (Segunda Edición)', 'Ricardo C. Nuñez - Victor F. Reinaldi', 2, 1, 1, 1, 27, 2),
+(3, 'Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II', 'Francisco J. D''Albora - Nicolás F. D''Albora', 3, 1, 1, 1, 42, 2),
+(4, 'Tratado de los Cheques', 'Osvaldo R. Gómez Leo', 4, 1, 1, 1, 39, 2),
+(5, 'Curso de Filosofia', 'Carlos Escobar Saravia', 5, 1, 1, 1, 34, 3),
+(6, 'Títulos de Crédito', 'Ignacio A. Escuti', 6, 1, 1, 1, 38, 2),
+(7, 'El Ciclo de la llusión y el Desencanto', 'Pablo Gerchunoff - Lucas Llach', 7, 1, 1, 1, 213, 4),
+(8, 'Teoría Microeconómica', 'John P. Gould-Edward P. Lazear', 8, 1, 1, 1, 216, 4);

@@ -1,92 +1,58 @@
-// Memoria local exclusiva para libros
-export let inventarioLibros = [];
+// Tablas maestras simuladas para resolver las relaciones de IDs a nombres de texto
+export const db_tablas_maestras = {
+    estados: [{ id: 1, condicion: '1 usado/nuevo' }],
+    asignatura: [
+        { id: 1, nombre: 'Historia/Economía' },
+        { id: 2, nombre: 'Derecho' },
+        { id: 3, nombre: 'Filosofía' },
+        { id: 4, nombre: 'Economia' }
+    ],
+    editoriales: [
+        { id: 1, nombre: 'Siglo Veintiuno de Argentina Editores' },
+        { id: 2, nombre: 'Marcos Lerner Editora Cordoba' },
+        { id: 3, nombre: 'LexisNexis Abeledo-Perrot' },
+        { id: 4, nombre: 'LexisNexis' },
+        { id: 5, nombre: 'Virtudes Editorial Universitaria' },
+        { id: 6, nombre: 'Astrea' },
+        { id: 7, nombre: 'Ariel Sociedad Económica.' },
+        { id: 8, nombre: 'Fondo de Cultura Económica' }
+    ]
+};
+
+// Array compartido en memoria del inventario de libros
+export const inventarioLibros = [];
 
 export function actualizarTablaInventario() {
     const tbody = document.querySelector("#tabla-inventario tbody");
+    if (!tbody) return;
     tbody.innerHTML = "";
 
-    inventarioLibros.forEach(libro => {
-        const fila = document.createElement("tr");
-        fila.innerHTML = `
-            <td>${libro.id}</td>
-            <td>${libro.titulo}</td>
-            <td>${libro.autor}</td>
-            <td>${libro.editorial}</td>
-            <td>${libro.asignatura}</td>
-            <td>${libro.cantidad}</td>
-            <td>${libro.cantidadDisponible}</td>
-            <td>${libro.estado}</td>
-        `;
-        tbody.appendChild(fila);
-    });
-}
-
-export function registrarNuevoLibro(evento) {
-    evento.preventDefault();
-    
-    const nuevoLibro = {
-        id: document.getElementById("libro-id").value,
-        titulo: document.getElementById("libro-titulo").value,
-        autor: document.getElementById("libro-autor").value,
-        editorial: document.getElementById("libro-editorial").value,
-        asignatura: document.getElementById("libro-asignatura").value,
-        cantidad: parseInt(document.getElementById("libro-cantidad").value),
-        cantidadDisponible: parseInt(document.getElementById("libro-cantidad").value),
-        estado: document.getElementById("libro-estado").value
-    };
-
-    if (inventarioLibros.some(l => l.id === nuevoLibro.id)) {
-        alert("El ID ya existe.");
+    if (!inventarioLibros || inventarioLibros.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>No hay libros cargados en el inventario.</td></tr>";
         return;
     }
 
-    inventarioLibros.push(nuevoLibro);
-    actualizarTablaInventario();
-    document.getElementById("form-libro").reset();
-}
-import { transformarCSV } from './utils.js';
-
-
-export function cargarInventarioDesdeCSV(textoCSV) {
-    const matriz = transformarCSV(textoCSV);
-    inventarioLibros = []; // Limpiar previo
-
-    matriz.forEach(fila => {
-        // Validación para evitar filas mal formateadas
-        if (fila.length >= 6) {
-            const libro = {
-                id: fila[0],
-                titulo: fila[1],
-                autor: fila[2],
-                editorial: fila[3],
-                asignatura: fila[4],
-                cantidad: parseInt(fila[5]) || 0,
-                cantidadDisponible: parseInt(fila[6]) || 0,
-                estado: fila[7] || "Nuevo"
-            };
-            inventarioLibros.push(libro);
-        }
-    });
-
-    inyectarInventarioEnHTML();
-}
-
-export function inyectarInventarioEnHTML() {
-    const tbody = document.querySelector("#tabla-inventario tbody");
-    tbody.innerHTML = ""; // Limpiar la fila de prueba fija del HTML
-
     inventarioLibros.forEach(libro => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-            <td>${libro.id}</td>
+        // Mapeamos de ID numérico a texto de forma segura
+        const editorialObj = db_tablas_maestras.editoriales.find(e => e.id === libro.id_editorial);
+        const asignaturaObj = db_tablas_maestras.asignatura.find(a => a.id === libro.id_asignatura);
+        const estadoObj = db_tablas_maestras.estados.find(es => es.id === libro.id_estado);
+
+        const nombreEditorial = editorialObj ? editorialObj.nombre : `Editorial #${libro.id_editorial}`;
+        const nombreAsignatura = asignaturaObj ? asignaturaObj.nombre : `Asignatura #${libro.id_asignatura}`;
+        const condicionEstado = estadoObj ? estadoObj.condicion : '1 usado/nuevo';
+
+        const fila = document.createElement("tr");
+        fila.innerHTML = `
+            <td>${libro.codigo}</td>
             <td>${libro.titulo}</td>
             <td>${libro.autor}</td>
-            <td>${libro.editorial}</td>
-            <td>${libro.asignatura}</td>
+            <td>${nombreEditorial}</td>
+            <td>${nombreAsignatura}</td>
             <td>${libro.cantidad}</td>
-            <td>${libro.cantidadDisponible}</td>
-            <td>${libro.estado}</td>
+            <td>${libro.cantidad_disponible}</td>
+            <td>${condicionEstado}</td>
         `;
-        tbody.appendChild(tr);
+        tbody.appendChild(fila);
     });
 }
