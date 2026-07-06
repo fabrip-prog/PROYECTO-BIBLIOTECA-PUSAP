@@ -2,14 +2,26 @@ import { inventarioLibros, actualizarTablaInventario, db_tablas_maestras, resolv
 
 // Arreglo en memoria para las reservas
 const historialReservas = [];
+let reservaSeleccionadaParaDevolver = null;
+let confirmacionCallback = null;
 
 function guardarDatosPersistentes() {
     localStorage.setItem("inventario_libros_sql", JSON.stringify(inventarioLibros));
     localStorage.setItem("db_tablas_maestras", JSON.stringify(db_tablas_maestras));
+    localStorage.setItem("historial_reservas", JSON.stringify(historialReservas));
+}
+
+function normalizarInventario() {
+    inventarioLibros.forEach(libro => {
+        const total = Number(libro.cantidad) || 0;
+        const disponible = Number(libro.cantidad_disponible) || 0;
+        libro.cantidad_disponible = Math.max(disponible, total);
+    });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("Inicializando el Sistema de Gestión unificado...");
+    cerrarModalDevolucion();
 
     const datosMaestras = localStorage.getItem("db_tablas_maestras");
     if (datosMaestras) {
@@ -29,6 +41,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (parsed && parsed.length > 0) {
             inventarioLibros.length = 0;
             inventarioLibros.push(...parsed);
+            normalizarInventario();
+            guardarDatosPersistentes();
             actualizarTablaInventario();
         } else {
             cargarDatosDesdeSQL();
@@ -67,6 +81,59 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
         console.error("Error crítico: No se encontró el botón con ID 'btn-confirmar-reserva' en el HTML.");
     }
+
+    const btnCancelarDevolucion = document.getElementById("btn-cancelar-devolucion");
+    const btnConfirmarDevolucion = document.getElementById("btn-confirmar-devolucion");
+    const modalDevolucion = document.getElementById("modal-devolucion");
+    const btnCancelarConfirmacion = document.getElementById("btn-cancelar-confirmacion");
+    const btnConfirmarConfirmacion = document.getElementById("btn-confirmar-confirmacion");
+    const modalConfirmacion = document.getElementById("modal-confirmacion");
+
+    if (btnCancelarDevolucion) {
+        btnCancelarDevolucion.addEventListener("click", cerrarModalDevolucion);
+    }
+
+    if (btnConfirmarDevolucion) {
+        btnConfirmarDevolucion.addEventListener("click", confirmarDevolucionReserva);
+    }
+
+    if (btnCancelarConfirmacion) {
+        btnCancelarConfirmacion.addEventListener("click", cerrarConfirmacion);
+    }
+
+    if (btnConfirmarConfirmacion) {
+        btnConfirmarConfirmacion.addEventListener("click", () => {
+            if (confirmacionCallback) {
+                const callback = confirmacionCallback;
+                confirmacionCallback = null;
+                callback();
+            }
+            cerrarConfirmacion();
+        });
+    }
+
+    if (modalDevolucion) {
+        modalDevolucion.addEventListener("click", (evento) => {
+            if (evento.target === modalDevolucion) {
+                cerrarModalDevolucion();
+            }
+        });
+    }
+
+    if (modalConfirmacion) {
+        modalConfirmacion.addEventListener("click", (evento) => {
+            if (evento.target === modalConfirmacion) {
+                cerrarConfirmacion();
+            }
+        });
+    }
+
+    document.addEventListener("keydown", (evento) => {
+        if (evento.key === "Escape") {
+            cerrarConfirmacion();
+            cerrarModalDevolucion();
+        }
+    });
 });
 
 // Función encargada de inyectar el catálogo inicial de 8 libros relacionales
@@ -86,7 +153,8 @@ function cargarDatosDesdeSQL() {
     ];
 
     librosSeguros.forEach(libro => inventarioLibros.push(libro));
-    localStorage.setItem("inventario_libros_sql", JSON.stringify(inventarioLibros));
+    normalizarInventario();
+    guardarDatosPersistentes();
     actualizarTablaInventario();
 }
 
@@ -102,7 +170,7 @@ function agregarLibroAlInventario(evento) {
     const inputEstado = document.getElementById("libro-estado");
 
     if (!inputId || !inputTitulo || !inputAutor || !inputEditorial || !inputAsignatura || !inputCantidad || !inputEstado) {
-        alert("Error de interfaz: faltan campos en el formulario de inventario.");
+        mostrarNotificacion("Error de interfaz: faltan campos en el formulario de inventario.", "error");
         return;
     }
 
@@ -115,13 +183,13 @@ function agregarLibroAlInventario(evento) {
     const estado = inputEstado.value.trim();
 
     if (!codigo || !titulo || !autor || !editorial || !asignatura || Number.isNaN(cantidad) || cantidad < 1) {
-        alert("Por favor, completa todos los campos antes de guardar el libro.");
+        mostrarNotificacion("Por favor, completa todos los campos antes de guardar el libro.", "error");
         return;
     }
 
     const existe = inventarioLibros.some(libro => String(libro.codigo) === codigo);
     if (existe) {
-        alert(`El código "${codigo}" ya existe en el inventario.`);
+        mostrarNotificacion(`El código "${codigo}" ya existe en el inventario.`, "error");
         return;
     }
 
@@ -151,7 +219,46 @@ function agregarLibroAlInventario(evento) {
     inputCantidad.value = "";
     inputEstado.value = "Nuevo";
 
-    alert("Libro agregado correctamente al inventario.");
+    mostrarNotificacion("Libro agregado correctamente al inventario.", "success");
+}
+
+function mostrarNotificacion(mensaje, tipo = "info") {
+    const contenedor = document.getElementById("contenedor-notificaciones");
+    if (!contenedor) return;
+
+    const notificacion = document.createElement("div");
+    notificacion.className = `notificacion ${tipo}`;
+    notificacion.textContent = mensaje;
+    contenedor.appendChild(notificacion);
+
+    window.setTimeout(() => notificacion.classList.add("visible"), 10);
+    window.setTimeout(() => {
+        notificacion.classList.remove("visible");
+        notificacion.classList.add("oculta");
+        window.setTimeout(() => notificacion.remove(), 280);
+    }, 3200);
+}
+
+function mostrarConfirmacion(mensaje, callback) {
+    const modal = document.getElementById("modal-confirmacion");
+    const texto = document.getElementById("modal-confirmacion-mensaje");
+    if (!modal || !texto) return;
+
+    texto.textContent = mensaje;
+    confirmacionCallback = callback;
+    modal.classList.remove("modal-oculto");
+    modal.style.display = "flex";
+    modal.setAttribute("aria-hidden", "false");
+}
+
+function cerrarConfirmacion() {
+    const modal = document.getElementById("modal-confirmacion");
+    if (modal) {
+        modal.classList.add("modal-oculto");
+        modal.style.display = "none";
+        modal.setAttribute("aria-hidden", "true");
+    }
+    confirmacionCallback = null;
 }
 
 function eliminarLibroDelInventario(codigo) {
@@ -159,37 +266,74 @@ function eliminarLibroDelInventario(codigo) {
     const index = inventarioLibros.findIndex(libro => String(libro.codigo) === codigoBuscado);
 
     if (index === -1) {
-        alert("No se encontró el libro a eliminar.");
+        mostrarNotificacion("No se encontró el libro a eliminar.", "error");
         return;
     }
 
     const libro = inventarioLibros[index];
-    const confirmar = confirm(`¿Deseas eliminar el libro "${libro.titulo}" del inventario?`);
-    if (!confirmar) return;
-
-    inventarioLibros.splice(index, 1);
-    guardarDatosPersistentes();
-    actualizarTablaInventario();
-    alert("Libro eliminado del inventario.");
+    mostrarConfirmacion(`¿Deseas eliminar el libro "${libro.titulo}" del inventario?`, () => {
+        inventarioLibros.splice(index, 1);
+        guardarDatosPersistentes();
+        actualizarTablaInventario();
+        mostrarNotificacion("Libro eliminado del inventario.", "success");
+    });
 }
 
-function eliminarReservaDelHistorial(idReserva) {
-    const idReservaBuscada = String(idReserva);
-    const index = historialReservas.findIndex(reserva => String(reserva.idReserva) === idReservaBuscada);
+function abrirModalDevolucion(idReserva) {
+    const reserva = historialReservas.find(item => String(item.idReserva) === String(idReserva));
 
-    if (index === -1) {
-        alert("No se encontró la reserva a eliminar.");
+    if (!reserva || String(reserva.estado).toLowerCase() === "devuelta") {
         return;
     }
 
-    const reserva = historialReservas[index];
-    const confirmar = confirm(`¿Deseas eliminar la reserva ${reserva.idReserva}?`);
-    if (!confirmar) return;
+    reservaSeleccionadaParaDevolver = reserva;
+    const modal = document.getElementById("modal-devolucion");
+    const info = document.getElementById("modal-reserva-info");
+    const textarea = document.getElementById("observaciones-devolucion");
 
-    historialReservas.splice(index, 1);
-    localStorage.setItem("historial_reservas", JSON.stringify(historialReservas));
+    if (!modal || !info || !textarea) return;
+
+    info.textContent = `Reserva ${reserva.idReserva} para el libro ${reserva.idLibro} del usuario ${reserva.usuario}.`;
+    textarea.value = reserva.observaciones || "";
+    modal.classList.remove("modal-oculto");
+    modal.style.display = "flex";
+    modal.setAttribute("aria-hidden", "false");
+    textarea.focus();
+}
+
+function cerrarModalDevolucion() {
+    const modal = document.getElementById("modal-devolucion");
+    const textarea = document.getElementById("observaciones-devolucion");
+
+    if (modal) {
+        modal.classList.add("modal-oculto");
+        modal.style.display = "none";
+        modal.setAttribute("aria-hidden", "true");
+    }
+
+    if (textarea) {
+        textarea.value = "";
+    }
+
+    reservaSeleccionadaParaDevolver = null;
+}
+
+function confirmarDevolucionReserva() {
+    if (!reservaSeleccionadaParaDevolver) return;
+
+    const textarea = document.getElementById("observaciones-devolucion");
+    const observaciones = textarea ? textarea.value.trim() : "";
+    const reserva = reservaSeleccionadaParaDevolver;
+
+    reserva.estado = "Devuelta";
+    reserva.observaciones = observaciones || "Sin observaciones";
+    reserva.fechaDevolucion = new Date().toISOString().split("T")[0];
+
+    guardarDatosPersistentes();
+    actualizarTablaInventario();
     actualizarTablaReservas();
-    alert("Reserva eliminada correctamente.");
+    cerrarModalDevolucion();
+    mostrarNotificacion("Reserva marcada como devuelta correctamente.", "success");
 }
 
 // LÓGICA DE REGISTRO DE RESERVA
@@ -200,7 +344,7 @@ function registrarNuevaReserva() {
     const inputFecha = document.getElementById("fecha-reserva");
 
     if (!inputLibro || !inputReserva || !inputUsuario || !inputFecha) {
-        alert("Error de interfaz: Faltan elementos en el formulario HTML.");
+        mostrarNotificacion("Error de interfaz: Faltan elementos en el formulario HTML.", "error");
         return;
     }
 
@@ -211,7 +355,7 @@ function registrarNuevaReserva() {
 
     // Validación de campos obligatorios
     if (!codigoBuscado || !idReserva || !usuario || !fecha) {
-        alert("Por favor, complete todos los campos del formulario antes de confirmar.");
+        mostrarNotificacion("Por favor, complete todos los campos del formulario antes de confirmar.", "error");
         return;
     }
 
@@ -219,28 +363,28 @@ function registrarNuevaReserva() {
     const libroEncontrado = inventarioLibros.find(l => String(l.codigo) === codigoBuscado);
 
     if (!libroEncontrado) {
-        alert(`Error: El código de libro [${codigoBuscado}] no existe en el catálogo.`);
+        mostrarNotificacion(`Error: El código de libro [${codigoBuscado}] no existe en el catálogo.`, "error");
         return;
     }
 
-    // 2. Controlar stock
-    if (libroEncontrado.cantidad_disponible <= 0) {
-        alert(`Stock Agotado: El libro "${libroEncontrado.titulo}" no posee unidades disponibles.`);
-        return;
+    // 2. Restaurar la disponibilidad visual del libro si quedó afectada por errores previos
+    const libroEncontradoActualizado = inventarioLibros.find(l => String(l.codigo) === codigoBuscado);
+    if (libroEncontradoActualizado) {
+        const total = Number(libroEncontradoActualizado.cantidad) || 0;
+        libroEncontradoActualizado.cantidad_disponible = Math.max(Number(libroEncontradoActualizado.cantidad_disponible) || 0, total);
+        guardarDatosPersistentes();
+        actualizarTablaInventario();
     }
 
-    // 3. Descontar stock y guardar estado del inventario
-    libroEncontrado.cantidad_disponible -= 1;
-    localStorage.setItem("inventario_libros_sql", JSON.stringify(inventarioLibros));
-    actualizarTablaInventario();
-
-    // 4. Registrar en el historial de reservas
+    // 3. Registrar en el historial de reservas
     const nuevaReserva = {
         idLibro: codigoBuscado,
         idReserva: idReserva,
         usuario: usuario,
         fecha: fecha,
-        estado: "Activa"
+        estado: "Activa",
+        observaciones: "",
+        fechaDevolucion: ""
     };
 
     historialReservas.push(nuevaReserva);
@@ -253,35 +397,55 @@ function registrarNuevaReserva() {
     inputUsuario.value = "";
     inputFecha.value = "";
 
-    alert("¡Reserva confirmada con éxito!");
+    mostrarNotificacion("¡Reserva confirmada con éxito!", "success");
 }
 
 // Función encargada de dibujar el historial inferior
 function actualizarTablaReservas() {
     const tbody = document.querySelector("#tabla-reservas tbody");
-    if (!tbody) return;
+    const tbodyDevueltas = document.querySelector("#tabla-reservas-devueltas tbody");
+    if (!tbody || !tbodyDevueltas) return;
+
+    const reservasActivas = historialReservas.filter(res => String(res.estado).toLowerCase() !== "devuelta");
+    const reservasDevueltas = historialReservas.filter(res => String(res.estado).toLowerCase() === "devuelta");
 
     tbody.innerHTML = "";
-
-    if (historialReservas.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas registradas en el historial.</td></tr>`;
-        return;
+    if (reservasActivas.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas activas en este momento.</td></tr>`;
+    } else {
+        reservasActivas.forEach(res => {
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+                <td>${res.idLibro}</td>
+                <td>${res.idReserva}</td>
+                <td>${res.usuario}</td>
+                <td>${res.fecha}</td>
+                <td><span style="color: #319795; font-weight: bold;">${res.estado}</span></td>
+                <td><button type="button" class="btn" data-accion="devolver-reserva" data-id-reserva="${res.idReserva}">Devolver</button></td>
+            `;
+            tbody.appendChild(fila);
+        });
     }
 
-    historialReservas.forEach(res => {
-        const fila = document.createElement("tr");
-        fila.innerHTML = `
-            <td>${res.idLibro}</td>
-            <td>${res.idReserva}</td>
-            <td>${res.usuario}</td>
-            <td>${res.fecha}</td>
-            <td><span style="color: #319795; font-weight: bold;">${res.estado}</span></td>
-            <td><button type="button" class="btn" data-accion="eliminar-reserva" data-id-reserva="${res.idReserva}">Eliminar</button></td>
-        `;
-        tbody.appendChild(fila);
-    });
+    tbodyDevueltas.innerHTML = "";
+    if (reservasDevueltas.length === 0) {
+        tbodyDevueltas.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas devueltas aún.</td></tr>`;
+    } else {
+        reservasDevueltas.forEach(res => {
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+                <td>${res.idLibro}</td>
+                <td>${res.idReserva}</td>
+                <td>${res.usuario}</td>
+                <td>${res.fecha}</td>
+                <td>${res.fechaDevolucion || "-"}</td>
+                <td>${res.observaciones || "Sin observaciones"}</td>
+            `;
+            tbodyDevueltas.appendChild(fila);
+        });
+    }
 
-    tbody.querySelectorAll('button[data-accion="eliminar-reserva"]').forEach(boton => {
-        boton.addEventListener('click', () => eliminarReservaDelHistorial(boton.dataset.idReserva));
+    tbody.querySelectorAll('button[data-accion="devolver-reserva"]').forEach(boton => {
+        boton.addEventListener('click', () => abrirModalDevolucion(boton.dataset.idReserva));
     });
 }

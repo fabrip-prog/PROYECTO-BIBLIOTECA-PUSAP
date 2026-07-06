@@ -117,7 +117,7 @@
             </div>
 
             <div class="tabla-contenedor">
-                <h3>Historial de Reservas</h3>
+                <h3>Reservas Activas</h3>
                 <table id="tabla-reservas">
                     <thead>
                         <tr>
@@ -130,13 +130,58 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- Las filas del historial se inyectan dinámicamente aquí -->
+                        <!-- Las filas del historial activo se inyectan dinámicamente aquí -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="tabla-contenedor">
+                <h3>Historial de Reservas Devueltas</h3>
+                <table id="tabla-reservas-devueltas">
+                    <thead>
+                        <tr>
+                            <th>ID_Libro</th>
+                            <th>ID_Reserva</th>
+                            <th>Usuario</th>
+                            <th>Fecha_Reserva</th>
+                            <th>Fecha_Devolución</th>
+                            <th>Observaciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Las filas del historial de devoluciones se inyectan dinámicamente aquí -->
                     </tbody>
                 </table>
             </div>
         </section>
 
     </main>
+
+    <div id="modal-devolucion" class="modal-oculto" aria-hidden="true">
+        <div class="modal-contenido">
+            <h3>Registrar devolución</h3>
+            <p id="modal-reserva-info"></p>
+            <label for="observaciones-devolucion">Observaciones</label>
+            <textarea id="observaciones-devolucion" rows="4" placeholder="Escriba observaciones sobre la devolución"></textarea>
+            <div class="modal-acciones">
+                <button type="button" id="btn-cancelar-devolucion" class="btn btn-secundario">Cancelar</button>
+                <button type="button" id="btn-confirmar-devolucion" class="btn btn-reserva">Guardar devolución</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-confirmacion" class="modal-oculto" aria-hidden="true">
+        <div class="modal-contenido">
+            <h3>Confirmar acción</h3>
+            <p id="modal-confirmacion-mensaje"></p>
+            <div class="modal-acciones">
+                <button type="button" id="btn-cancelar-confirmacion" class="btn btn-secundario">Cancelar</button>
+                <button type="button" id="btn-confirmar-confirmacion" class="btn">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="contenedor-notificaciones" class="contenedor-notificaciones" aria-live="polite"></div>
 
     <!-- Script principal de Electron -->
     <script type="module" src="js/App.js"></script>
