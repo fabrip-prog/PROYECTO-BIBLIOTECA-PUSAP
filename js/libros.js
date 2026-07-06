@@ -22,6 +22,18 @@ export const db_tablas_maestras = {
 // Array compartido en memoria del inventario de libros
 export const inventarioLibros = [];
 
+export function resolverIdMaestra(tabla, valor, campo = 'nombre') {
+    const texto = String(valor || '').trim();
+    if (!texto) return null;
+
+    const existente = tabla.find(item => String(item[campo] || '').trim().toLowerCase() === texto.toLowerCase());
+    if (existente) return existente.id;
+
+    const nuevoId = tabla.length > 0 ? Math.max(...tabla.map(item => Number(item.id) || 0)) + 1 : 1;
+    tabla.push({ id: nuevoId, [campo]: texto });
+    return nuevoId;
+}
+
 export function actualizarTablaInventario() {
     const tbody = document.querySelector("#tabla-inventario tbody");
     if (!tbody) return;
@@ -52,6 +64,7 @@ export function actualizarTablaInventario() {
             <td>${libro.cantidad}</td>
             <td>${libro.cantidad_disponible}</td>
             <td>${condicionEstado}</td>
+            <td><button type="button" class="btn" data-accion="eliminar-libro" data-codigo="${libro.codigo}">Eliminar</button></td>
         `;
         tbody.appendChild(fila);
     });

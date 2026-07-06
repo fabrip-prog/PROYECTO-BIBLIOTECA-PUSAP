@@ -1,10 +1,26 @@
-import { inventarioLibros, actualizarTablaInventario } from './libros.js';
+import { inventarioLibros, actualizarTablaInventario, db_tablas_maestras, resolverIdMaestra } from './libros.js';
 
 // Arreglo en memoria para las reservas
 const historialReservas = [];
 
+function guardarDatosPersistentes() {
+    localStorage.setItem("inventario_libros_sql", JSON.stringify(inventarioLibros));
+    localStorage.setItem("db_tablas_maestras", JSON.stringify(db_tablas_maestras));
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     console.log("Inicializando el Sistema de Gestión unificado...");
+
+    const datosMaestras = localStorage.getItem("db_tablas_maestras");
+    if (datosMaestras) {
+        const maestraPersistida = JSON.parse(datosMaestras);
+        db_tablas_maestras.estados.length = 0;
+        db_tablas_maestras.estados.push(...(maestraPersistida.estados || []));
+        db_tablas_maestras.asignatura.length = 0;
+        db_tablas_maestras.asignatura.push(...(maestraPersistida.asignatura || []));
+        db_tablas_maestras.editoriales.length = 0;
+        db_tablas_maestras.editoriales.push(...(maestraPersistida.editoriales || []));
+    }
 
     // 1. CONTROL Y CARGA DEL INVENTARIO DE LIBROS
     const datosLocales = localStorage.getItem("inventario_libros_sql");
@@ -21,11 +37,26 @@ document.addEventListener("DOMContentLoaded", () => {
         cargarDatosDesdeSQL();
     }
 
+    const formLibro = document.getElementById("form-libro");
+    if (formLibro) {
+        formLibro.addEventListener("submit", agregarLibroAlInventario);
+    }
+
     // 2. RECUPERAR HISTORIAL DE RESERVAS PREVIAS
     const guardadas = localStorage.getItem("historial_reservas");
     if (guardadas) {
         historialReservas.push(...JSON.parse(guardadas));
         actualizarTablaReservas();
+    }
+
+    const tbodyInventario = document.querySelector("#tabla-inventario tbody");
+    if (tbodyInventario) {
+        tbodyInventario.addEventListener("click", (evento) => {
+            const boton = evento.target.closest("button[data-accion='eliminar-libro']");
+            if (boton) {
+                eliminarLibroDelInventario(boton.dataset.codigo);
+            }
+        });
     }
 
     // 3. ASIGNAR EL ESCUCHADOR DIRECTO AL BOTÓN DE RESERVAS
@@ -59,6 +90,108 @@ function cargarDatosDesdeSQL() {
     actualizarTablaInventario();
 }
 
+function agregarLibroAlInventario(evento) {
+    evento.preventDefault();
+
+    const inputId = document.getElementById("libro-id");
+    const inputTitulo = document.getElementById("libro-titulo");
+    const inputAutor = document.getElementById("libro-autor");
+    const inputEditorial = document.getElementById("libro-editorial");
+    const inputAsignatura = document.getElementById("libro-asignatura");
+    const inputCantidad = document.getElementById("libro-cantidad");
+    const inputEstado = document.getElementById("libro-estado");
+
+    if (!inputId || !inputTitulo || !inputAutor || !inputEditorial || !inputAsignatura || !inputCantidad || !inputEstado) {
+        alert("Error de interfaz: faltan campos en el formulario de inventario.");
+        return;
+    }
+
+    const codigo = inputId.value.trim();
+    const titulo = inputTitulo.value.trim();
+    const autor = inputAutor.value.trim();
+    const editorial = inputEditorial.value.trim();
+    const asignatura = inputAsignatura.value.trim();
+    const cantidad = parseInt(inputCantidad.value, 10);
+    const estado = inputEstado.value.trim();
+
+    if (!codigo || !titulo || !autor || !editorial || !asignatura || Number.isNaN(cantidad) || cantidad < 1) {
+        alert("Por favor, completa todos los campos antes de guardar el libro.");
+        return;
+    }
+
+    const existe = inventarioLibros.some(libro => String(libro.codigo) === codigo);
+    if (existe) {
+        alert(`El código "${codigo}" ya existe en el inventario.`);
+        return;
+    }
+
+    const idEditorial = resolverIdMaestra(db_tablas_maestras.editoriales, editorial);
+    const idAsignatura = resolverIdMaestra(db_tablas_maestras.asignatura, asignatura);
+
+    inventarioLibros.push({
+        codigo,
+        titulo,
+        autor,
+        id_editorial: idEditorial,
+        cantidad,
+        cantidad_disponible: cantidad,
+        id_estado: 1,
+        estado_text: estado,
+        id_asignatura: idAsignatura
+    });
+
+    guardarDatosPersistentes();
+    actualizarTablaInventario();
+
+    inputId.value = "";
+    inputTitulo.value = "";
+    inputAutor.value = "";
+    inputEditorial.value = "";
+    inputAsignatura.value = "";
+    inputCantidad.value = "";
+    inputEstado.value = "Nuevo";
+
+    alert("Libro agregado correctamente al inventario.");
+}
+
+function eliminarLibroDelInventario(codigo) {
+    const codigoBuscado = String(codigo);
+    const index = inventarioLibros.findIndex(libro => String(libro.codigo) === codigoBuscado);
+
+    if (index === -1) {
+        alert("No se encontró el libro a eliminar.");
+        return;
+    }
+
+    const libro = inventarioLibros[index];
+    const confirmar = confirm(`¿Deseas eliminar el libro "${libro.titulo}" del inventario?`);
+    if (!confirmar) return;
+
+    inventarioLibros.splice(index, 1);
+    guardarDatosPersistentes();
+    actualizarTablaInventario();
+    alert("Libro eliminado del inventario.");
+}
+
+function eliminarReservaDelHistorial(idReserva) {
+    const idReservaBuscada = String(idReserva);
+    const index = historialReservas.findIndex(reserva => String(reserva.idReserva) === idReservaBuscada);
+
+    if (index === -1) {
+        alert("No se encontró la reserva a eliminar.");
+        return;
+    }
+
+    const reserva = historialReservas[index];
+    const confirmar = confirm(`¿Deseas eliminar la reserva ${reserva.idReserva}?`);
+    if (!confirmar) return;
+
+    historialReservas.splice(index, 1);
+    localStorage.setItem("historial_reservas", JSON.stringify(historialReservas));
+    actualizarTablaReservas();
+    alert("Reserva eliminada correctamente.");
+}
+
 // LÓGICA DE REGISTRO DE RESERVA
 function registrarNuevaReserva() {
     const inputLibro = document.getElementById("id-libro-reserva");
@@ -71,7 +204,7 @@ function registrarNuevaReserva() {
         return;
     }
 
-    const codigoBuscado = parseInt(inputLibro.value.trim());
+    const codigoBuscado = inputLibro.value.trim();
     const idReserva = inputReserva.value.trim();
     const usuario = inputUsuario.value.trim();
     const fecha = inputFecha.value;
@@ -83,7 +216,7 @@ function registrarNuevaReserva() {
     }
 
     // 1. Buscar el libro en el inventario real
-    const libroEncontrado = inventarioLibros.find(l => l.codigo === codigoBuscado);
+    const libroEncontrado = inventarioLibros.find(l => String(l.codigo) === codigoBuscado);
 
     if (!libroEncontrado) {
         alert(`Error: El código de libro [${codigoBuscado}] no existe en el catálogo.`);
@@ -143,7 +276,12 @@ function actualizarTablaReservas() {
             <td>${res.usuario}</td>
             <td>${res.fecha}</td>
             <td><span style="color: #319795; font-weight: bold;">${res.estado}</span></td>
+            <td><button type="button" class="btn" data-accion="eliminar-reserva" data-id-reserva="${res.idReserva}">Eliminar</button></td>
         `;
         tbody.appendChild(fila);
+    });
+
+    tbody.querySelectorAll('button[data-accion="eliminar-reserva"]').forEach(boton => {
+        boton.addEventListener('click', () => eliminarReservaDelHistorial(boton.dataset.idReserva));
     });
 }
