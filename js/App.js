@@ -141,6 +141,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Buscador en tiempo real para filtrar el inventario
+    const buscadorLibros = document.getElementById("buscador-libros");
+    if (buscadorLibros) {
+        buscadorLibros.addEventListener("input", () => {
+            actualizarTablaInventario();
+        });
+    }
+
     // Escuchador de confirmación de reserva
     const btnConfirmar = document.getElementById("btn-confirmar-reserva");
     if (btnConfirmar) {

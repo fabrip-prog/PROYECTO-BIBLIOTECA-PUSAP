@@ -40,11 +40,42 @@ export function actualizarTablaInventario() {
     tbody.innerHTML = "";
 
     if (!inventarioLibros || inventarioLibros.length === 0) {
-        tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>No hay libros cargados en el inventario.</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>No hay libros cargados en el inventario.</td></tr>";
         return;
     }
 
-    inventarioLibros.forEach(libro => {
+    const inputBuscar = document.getElementById("buscador-libros");
+    const filtro = inputBuscar ? inputBuscar.value.trim().toLowerCase() : "";
+
+    const librosFiltrados = inventarioLibros.filter(libro => {
+        if (!filtro) return true;
+
+        const editorialObj = db_tablas_maestras.editoriales.find(e => e.id === libro.id_editorial);
+        const asignaturaObj = db_tablas_maestras.asignatura.find(a => a.id === libro.id_asignatura);
+        const estadoObj = db_tablas_maestras.estados.find(es => es.id === libro.id_estado);
+
+        const nombreEditorial = editorialObj ? editorialObj.nombre.toLowerCase() : `editorial #${libro.id_editorial}`;
+        const nombreAsignatura = asignaturaObj ? asignaturaObj.nombre.toLowerCase() : `asignatura #${libro.id_asignatura}`;
+        const condicionEstado = estadoObj ? estadoObj.condicion.toLowerCase() : '1 usado/nuevo';
+
+        const codigoStr = String(libro.codigo).toLowerCase();
+        const tituloStr = String(libro.titulo || '').toLowerCase();
+        const autorStr = String(libro.autor || '').toLowerCase();
+
+        return codigoStr.includes(filtro) ||
+               tituloStr.includes(filtro) ||
+               autorStr.includes(filtro) ||
+               nombreEditorial.includes(filtro) ||
+               nombreAsignatura.includes(filtro) ||
+               condicionEstado.includes(filtro);
+    });
+
+    if (librosFiltrados.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>No se encontraron libros que coincidan con la búsqueda.</td></tr>";
+        return;
+    }
+
+    librosFiltrados.forEach(libro => {
         // Mapeamos de ID numérico a texto de forma segura
         const editorialObj = db_tablas_maestras.editoriales.find(e => e.id === libro.id_editorial);
         const asignaturaObj = db_tablas_maestras.asignatura.find(a => a.id === libro.id_asignatura);

@@ -59,30 +59,37 @@
             <div class="tabla-contenedor">
                 <h3>Catálogo Disponibilidad</h3>
 
-                <div style="margin-bottom: 15px;">
-                    <label for="archivo-excel-libros" style="font-size: 14px; font-weight: bold;">Cargar Inventario (CSV): </label>
-                    <input type="file" id="archivo-excel-libros" accept=".csv">
-                    <button id="btn-cargar-predef" class="btn" type="button">Cargar CSV por defecto</button>
-                    <button id="btn-exportar-csv" class="btn" type="button">Exportar inventario a CSV</button>
+                <div class="acciones-csv">
+                    <label for="archivo-excel-libros" class="label-csv">Cargar Inventario (CSV): </label>
+                    <input type="file" id="archivo-excel-libros" accept=".csv" class="input-csv">
+                    <button id="btn-cargar-predef" class="btn btn-csv" type="button">Cargar CSV por defecto</button>
+                    <button id="btn-exportar-csv" class="btn btn-csv" type="button">Exportar inventario a CSV</button>
                 </div>
 
-                <table id="tabla-inventario">
-                    <thead>
-                        <tr>
-                            <th>ID / Código</th>
-                            <th>Título del Libro</th>
-                            <th>Autor</th>
-                            <th>Editorial</th>
-                            <th>Asignatura</th>
-                            <th>Cantidad</th>
-                            <th>Cantidad_Disponible</th>
-                            <th>Estado (Nuevo/Usado)</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                </table>
+                <div class="buscador-contenedor">
+                    <span class="icono-buscar">🔍</span>
+                    <input type="text" id="buscador-libros" placeholder="Buscar libros por título, autor, editorial, asignatura o código...">
+                </div>
+
+                <div class="tabla-scroll">
+                    <table id="tabla-inventario">
+                        <thead>
+                            <tr>
+                                <th>ID / Código</th>
+                                <th>Título del Libro</th>
+                                <th>Autor</th>
+                                <th>Editorial</th>
+                                <th>Asignatura</th>
+                                <th>Cantidad</th>
+                                <th>Cantidad_Disponible</th>
+                                <th>Estado (Nuevo/Usado)</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
