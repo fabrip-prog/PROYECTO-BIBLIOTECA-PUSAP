@@ -1,7 +1,9 @@
-Plantilla de Inventario para Digitalización de Librería;;;;;;;
-;;;;;;;
-ID / Código;Título del Libro;Autor;Editorial;Asignatura;Cantidad;Cantidad_Disponible;Estado (Nuevo/Usado)
-LIB-0001;Cien años de soledad;Gabriel García Márquez;Editorial Sudamericana;Ficción / Realismo Mágico;3;2;Nuevo
-LIB-0002;Don Quijote de la Mancha;Miguel de Cervantes;Real Academia Española;Clásicos;1;1;Usado
-LIB-0003;Breves respuestas a las grandes preguntas;Stephen Hawking;Crítica;Ciencia / Divulgación;5;4;Nuevo
-LIB-0004;El Alquimista;Paulo Coelho;HarperOne;Autoayuda / Ficción;2;1;Nuevo
+ID / Código;Título del Libro;Autor;Editorial;Asignatura;Cantidad;Cantidad_Disponible;Estado (Nuevo/Usado);Numero_Curso
+1;Historia Socioeconómica de la Argentina. 1776-1860.;Jonathan Brown;Siglo Veintiuno de Argentina Editores (en coedición con el Instituto Di Tella);Historia/Economía;1;0;1 usado/nuevo;214
+2;Manual de Derecho Penal- Parte Especial (Segunda Edición);Ricardo C. Nuñez - Victor F. Reinaldi;Marcos Lerner Editora Cordoba;Derecho;1;0;1 usado/nuevo;27
+3;Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II;Francisco J. D'Albora - Nicolás F. D'Albora;LexisNexis Abeledo-Perrot;Derecho;1;1;1 usado/nuevo;42
+4;Tratado de los Cheques;Osvaldo R. Gómez Leo;LexisNexis;Derecho;1;1;1 usado/nuevo;39
+5;Curso de Filosofia;Carlos Escobar Saravia;Virtudes Editorial Universitaria;Filosofía;1;1;1 usado/nuevo;34
+6;Títulos de Crédito;Ignacio A. Escuti;Astrea;Derecho;1;1;1 usado/nuevo;38
+7;El Ciclo de la llusión y el Desencanto;Pablo Gerchunoff - Lucas Llach;Ariel Sociedad Económica.;Economia;1;1;1 usado/nuevo;213
+8;Teoría Microeconómica;John P. Gould-Edward P. Lazear;Fondo de Cultura Económica;Economia;1;1;1 usado/nuevo;216

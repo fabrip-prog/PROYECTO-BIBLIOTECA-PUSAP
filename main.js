@@ -3,12 +3,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import initSqlJs from 'sql.js';
+import readline from 'readline';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Conectar a la base de datos biblioteca.db en la raíz del proyecto
 const dbPath = path.join(__dirname, 'biblioteca.db');
+const csvPath = path.join(__dirname, 'Base_Datos_Libros_pusap.csv');
 
 // Inicializar sql.js
 const SQL = await initSqlJs();
@@ -21,10 +23,15 @@ if (fs.existsSync(dbPath)) {
     db = new SQL.Database();
 }
 
+let isWritingCSV = false;
+
 function saveToDisk() {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(dbPath, buffer);
+    
+    // Sincronizar automáticamente hacia el archivo CSV de Excel para mantenerlo actualizado
+    exportarCSV(csvPath);
 }
 
 // Helpers para consultas
@@ -48,6 +55,247 @@ function dbQueryGet(sql, params = []) {
     }
     stmt.free();
     return result;
+}
+
+// Importar archivo CSV de forma síncrona para la inicialización
+function importarCSVSync(filePath) {
+    try {
+        const content = fs.readFileSync(filePath, { encoding: 'latin1' });
+        const lines = content.split(/\r?\n/);
+        
+        const resolveId = (table, name) => {
+            if (!name) return null;
+            const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [name.trim()]);
+            if (existing) return existing.id;
+            db.run(`INSERT INTO "${table}" (nombre) VALUES (?)`, [name.trim()]);
+            const last = dbQueryGet(`SELECT last_insert_rowid() as id`);
+            return last ? last.id : null;
+        };
+
+        db.run("BEGIN TRANSACTION");
+        for (const line of lines) {
+            const lineaLimpia = line.trim();
+            if (lineaLimpia === "" || 
+                lineaLimpia.startsWith("Plantilla") || 
+                /^;+$/.test(lineaLimpia) || 
+                lineaLimpia.toLowerCase().includes("id / código") || 
+                lineaLimpia.toLowerCase().includes("id_libro") ||
+                lineaLimpia.toLowerCase().includes("título del libro")) {
+                continue;
+            }
+            const celdas = lineaLimpia.split(';');
+            if (celdas.length >= 6) {
+                const codigo = parseInt(celdas[0]);
+                if (Number.isNaN(codigo)) continue;
+
+                const titulo = celdas[1]?.trim();
+                if (!titulo) continue;
+
+                const autor = celdas[2]?.trim() || 'Anónimo';
+                const nombreEditorial = celdas[3]?.trim();
+                const nombreAsignatura = celdas[4]?.trim();
+                const cantidad = parseInt(celdas[5]) || 0;
+                
+                const idEditorial = resolveId('editoriales', nombreEditorial);
+                const idAsignatura = resolveId('asignatura', nombreAsignatura);
+                const idEstado = 1;
+
+                // Si el libro ya existía, conservamos su stock disponible en base al total y reservas activas
+                const libroExistente = dbQueryGet("SELECT cantidad, cantidad_disponible FROM libros WHERE codigo = ?", [codigo]);
+                let cantidadDisponible = cantidad;
+
+                if (libroExistente) {
+                    const reservasActivas = libroExistente.cantidad - libroExistente.cantidad_disponible;
+                    cantidadDisponible = Math.max(0, cantidad - reservasActivas);
+                }
+
+                const numeroCurso = parseInt(celdas[8]) || null;
+
+                db.run(`
+                    INSERT OR REPLACE INTO libros (
+                        codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, numero_curso, id_asignatura
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    codigo,
+                    titulo,
+                    autor,
+                    idEditorial,
+                    cantidad,
+                    cantidadDisponible,
+                    idEstado,
+                    numeroCurso,
+                    idAsignatura
+                ]);
+            }
+        }
+        db.run("COMMIT");
+        console.log("Sincronización inicial desde archivo CSV de Excel finalizada.");
+    } catch (err) {
+        db.run("ROLLBACK");
+        console.error("Error al inicializar catálogo desde CSV:", err);
+    }
+}
+
+// Importar archivo CSV asincrónicamente con retransmisión a la UI
+async function importarCSV(filePath) {
+    if (!fs.existsSync(filePath)) return;
+    console.log(`Leyendo e importando cambios del archivo CSV: ${filePath}`);
+    
+    const stream = fs.createReadStream(filePath, { encoding: 'latin1' });
+    const lector = readline.createInterface({
+        input: stream,
+        crlfDelay: Infinity
+    });
+
+    const rowsToProcess = [];
+    for await (const linea of lector) {
+        const lineaLimpia = linea.trim();
+        if (lineaLimpia === "" || 
+            lineaLimpia.startsWith("Plantilla") || 
+            /^;+$/.test(lineaLimpia) || 
+            lineaLimpia.toLowerCase().includes("id / código") || 
+            lineaLimpia.toLowerCase().includes("id_libro") ||
+            lineaLimpia.toLowerCase().includes("título del libro")) {
+            continue;
+        }
+        const celdas = lineaLimpia.split(';');
+        rowsToProcess.push(celdas);
+    }
+
+    try {
+        db.run("BEGIN TRANSACTION");
+
+        const resolveId = (table, name) => {
+            if (!name) return null;
+            const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [name.trim()]);
+            if (existing) return existing.id;
+            db.run(`INSERT INTO "${table}" (nombre) VALUES (?)`, [name.trim()]);
+            const last = dbQueryGet(`SELECT last_insert_rowid() as id`);
+            return last ? last.id : null;
+        };
+
+        for (const celdas of rowsToProcess) {
+            if (celdas.length >= 6) {
+                const codigo = parseInt(celdas[0]);
+                if (Number.isNaN(codigo)) continue;
+
+                const titulo = celdas[1]?.trim();
+                if (!titulo) continue;
+
+                const autor = celdas[2]?.trim() || 'Anónimo';
+                const nombreEditorial = celdas[3]?.trim();
+                const nombreAsignatura = celdas[4]?.trim();
+                const cantidad = parseInt(celdas[5]) || 0;
+                
+                const idEditorial = resolveId('editoriales', nombreEditorial);
+                const idAsignatura = resolveId('asignatura', nombreAsignatura);
+                const idEstado = 1;
+
+                const libroExistente = dbQueryGet("SELECT cantidad, cantidad_disponible FROM libros WHERE codigo = ?", [codigo]);
+                let cantidadDisponible = cantidad;
+
+                if (libroExistente) {
+                    const reservasActivas = libroExistente.cantidad - libroExistente.cantidad_disponible;
+                    cantidadDisponible = Math.max(0, cantidad - reservasActivas);
+                }
+
+                const numeroCurso = parseInt(celdas[8]) || null;
+
+                db.run(`
+                    INSERT OR REPLACE INTO libros (
+                        codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, numero_curso, id_asignatura
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    codigo,
+                    titulo,
+                    autor,
+                    idEditorial,
+                    cantidad,
+                    cantidadDisponible,
+                    idEstado,
+                    numeroCurso,
+                    idAsignatura
+                ]);
+            }
+        }
+
+        db.run("COMMIT");
+
+        // Guardamos la base de datos sin disparar la exportación en bucle
+        const data = db.export();
+        const buffer = Buffer.from(data);
+        fs.writeFileSync(dbPath, buffer);
+
+        console.log("¡Catálogo sincronizado exitosamente con SQLite!");
+
+        // Avisar al frontend para actualizar la visualización
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('db-actualizada');
+        }
+    } catch (err) {
+        db.run("ROLLBACK");
+        console.error("Error al ejecutar la transacción de importación:", err);
+        throw err;
+    }
+}
+
+// Reintento de importación para evitar fallos si Excel tiene el archivo bloqueado temporalmente
+async function importarCSVConReintento(filePath, intento = 1) {
+    try {
+        await importarCSV(filePath);
+    } catch (err) {
+        if (intento <= 3 && (err.code === 'EBUSY' || err.code === 'EPERM')) {
+            console.log(`El archivo CSV está siendo guardado por Excel. Reintentando en 500ms (intento ${intento})...`);
+            setTimeout(() => importarCSVConReintento(filePath, intento + 1), 500);
+        } else {
+            console.error("Error definitivo al importar el archivo CSV:", err);
+        }
+    }
+}
+
+// Exportar catálogo de SQLite a CSV con formato Excel en español (codificación Latin1 y separador ;)
+function exportarCSV(filePath) {
+    try {
+        isWritingCSV = true;
+        console.log(`Exportando catálogo a CSV compatible con Excel: ${filePath}`);
+        
+        const libros = dbQueryAll(`
+            SELECT l.codigo, l.titulo, l.autor, e.nombre as editorial, a.nombre as asignatura, l.cantidad, l.cantidad_disponible, es.condicion as estado, l.numero_curso
+            FROM libros l
+            LEFT JOIN editoriales e ON l.id_editorial = e.id
+            LEFT JOIN asignatura a ON l.id_asignatura = a.id
+            LEFT JOIN estados es ON l.id_estado = es.id
+        `);
+
+        const lines = [
+            "ID / Código;Título del Libro;Autor;Editorial;Asignatura;Cantidad;Cantidad_Disponible;Estado (Nuevo/Usado);Numero_Curso"
+        ];
+
+        libros.forEach(l => {
+            const line = [
+                l.codigo,
+                l.titulo || '',
+                l.autor || '',
+                l.editorial || '',
+                l.asignatura || '',
+                l.cantidad,
+                l.cantidad_disponible,
+                l.estado || 'Nuevo',
+                l.numero_curso || ''
+            ].join(';');
+            lines.push(line);
+        });
+
+        fs.writeFileSync(filePath, lines.join('\n'), { encoding: 'latin1' });
+        console.log("¡CSV de Excel exportado exitosamente!");
+    } catch (err) {
+        console.error("Error al exportar a CSV:", err);
+    } finally {
+        // Pausamos brevemente antes de reactivar el watcher para evitar bucles infinitos de eventos de disco
+        setTimeout(() => {
+            isWritingCSV = false;
+        }, 1000);
+    }
 }
 
 // Inicializar estructura y datos base si no existen
@@ -135,29 +383,51 @@ function inicializarBBDD() {
     // 4. Población de libros si está vacío
     const checkLibros = dbQueryGet("SELECT count(*) as count FROM libros");
     if (checkLibros.count === 0) {
-        const librosSeguros = [
-            { codigo: 1, titulo: 'Historia Socioeconómica de la Argentina. 1776-1860.', autor: 'Jonathan Brown', id_editorial: 1, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 1 },
-            { codigo: 2, titulo: 'Manual de Derecho Penal- Parte Especial (Segunda Edición)', autor: 'Ricardo C. Nuñez - Victor F. Reinaldi', id_editorial: 2, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-            { codigo: 3, titulo: 'Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II', autor: 'Francisco J. D\'Albora - Nicolás F. D\'Albora', id_editorial: 3, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-            { codigo: 4, titulo: 'Tratado de los Cheques', autor: 'Osvaldo R. Gómez Leo', id_editorial: 4, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-            { codigo: 5, titulo: 'Curso de Filosofia', autor: 'Carlos Escobar Saravia', id_editorial: 5, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 3 },
-            { codigo: 6, titulo: 'Títulos de Crédito', autor: 'Ignacio A. Escuti', id_editorial: 6, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-            { codigo: 7, titulo: 'El Ciclo de la llusión y el Desencanto', autor: 'Pablo Gerchunoff - Lucas Llach', id_editorial: 7, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 },
-            { codigo: 8, titulo: 'Teoría Microeconómica', autor: 'John P. Gould-Edward P. Lazear', id_editorial: 8, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 }
-        ];
+        if (fs.existsSync(csvPath)) {
+            console.log("Inicializando base de datos desde el archivo CSV existente...");
+            importarCSVSync(csvPath);
+        } else {
+            console.log("No se encontró CSV de inventario. Inyectando catálogo base...");
+            const librosSeguros = [
+                { codigo: 1, titulo: 'Historia Socioeconómica de la Argentina. 1776-1860.', autor: 'Jonathan Brown', id_editorial: 1, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 1 },
+                { codigo: 2, titulo: 'Manual de Derecho Penal- Parte Especial (Segunda Edición)', autor: 'Ricardo C. Nuñez - Victor F. Reinaldi', id_editorial: 2, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
+                { codigo: 3, titulo: 'Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II', autor: 'Francisco J. D\'Albora - Nicolás F. D\'Albora', id_editorial: 3, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
+                { codigo: 4, titulo: 'Tratado de los Cheques', autor: 'Osvaldo R. Gómez Leo', id_editorial: 4, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
+                { codigo: 5, titulo: 'Curso de Filosofia', autor: 'Carlos Escobar Saravia', id_editorial: 5, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 3 },
+                { codigo: 6, titulo: 'Títulos de Crédito', autor: 'Ignacio A. Escuti', id_editorial: 6, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
+                { codigo: 7, titulo: 'El Ciclo de la llusión y el Desencanto', autor: 'Pablo Gerchunoff - Lucas Llach', id_editorial: 7, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 },
+                { codigo: 8, titulo: 'Teoría Microeconómica', autor: 'John P. Gould-Edward P. Lazear', id_editorial: 8, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 }
+            ];
 
-        librosSeguros.forEach(l => {
-            db.run(`
-                INSERT OR REPLACE INTO libros (codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, id_asignatura)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [l.codigo, l.titulo, l.autor, l.id_editorial, l.cantidad, l.cantidad_disponible, l.id_estado, l.id_asignatura]);
-        });
+            librosSeguros.forEach(l => {
+                db.run(`
+                    INSERT OR REPLACE INTO libros (codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, id_asignatura)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [l.codigo, l.titulo, l.autor, l.id_editorial, l.cantidad, l.cantidad_disponible, l.id_estado, l.id_asignatura]);
+            });
+        }
     }
 
     saveToDisk();
 }
 
 inicializarBBDD();
+
+// Vigilante de cambios en tiempo real del archivo CSV para el auto-sync bidireccional
+let watchTimeout = null;
+if (fs.existsSync(csvPath)) {
+    console.log(`Iniciando vigilancia de cambios en el CSV: ${csvPath}`);
+    fs.watch(csvPath, (eventType) => {
+        if (eventType === 'change') {
+            if (isWritingCSV) return; // Ignorar el trigger si la escritura se inició desde la aplicación
+            if (watchTimeout) clearTimeout(watchTimeout);
+            watchTimeout = setTimeout(() => {
+                console.log("Cambio detectado en el archivo CSV. Sincronizando...");
+                importarCSVConReintento(csvPath);
+            }, 500);
+        }
+    });
+}
 
 let mainWindow;
 
@@ -379,6 +649,29 @@ ipcMain.handle('limpiar-historial-devueltas', () => {
         return { success: true };
     } catch (err) {
         console.error("Error al limpiar historial de reservas devueltas:", err);
+        return { success: false, error: err.message };
+    }
+});
+
+// 9. Cargar CSV Manual o por Defecto
+ipcMain.handle('cargar-csv-manual', async (event, filePath) => {
+    try {
+        const pathAImportar = filePath || csvPath;
+        await importarCSV(pathAImportar);
+        return { success: true };
+    } catch (err) {
+        console.error("Error en importar CSV manual:", err);
+        return { success: false, error: err.message };
+    }
+});
+
+// 10. Exportar CSV Manual
+ipcMain.handle('exportar-csv-manual', () => {
+    try {
+        exportarCSV(csvPath);
+        return { success: true };
+    } catch (err) {
+        console.error("Error en exportar CSV manual:", err);
         return { success: false, error: err.message };
     }
 });

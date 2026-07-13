@@ -8,6 +8,9 @@ const { ipcRenderer } = window.require ? window.require('electron') : {
         if (channel === 'get-libros') return [];
         if (channel === 'get-reservas') return [];
         return { success: true };
+    },
+    on: (channel, callback) => {
+        console.warn(`IPC Mock: Registered listener for ${channel}`);
     }
 };
 
@@ -59,6 +62,69 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Carga de base de datos inicializada
     cargarDatosDesdeSQLite();
+
+    // 1. Escuchar actualizaciones en tiempo real desde el Main Process (cambios detectados en Excel watch)
+    if (ipcRenderer && typeof ipcRenderer.on === 'function') {
+        ipcRenderer.on('db-actualizada', () => {
+            console.log("Base de datos física actualizada. Recargando UI...");
+            cargarDatosDesdeSQLite();
+            mostrarNotificacion("Catálogo sincronizado automáticamente con Excel.", "success");
+        });
+    }
+
+    // 2. Control de carga manual de CSV (Excel)
+    const inputArchivo = document.getElementById("archivo-excel-libros");
+    if (inputArchivo) {
+        inputArchivo.addEventListener("change", async (evento) => {
+            const archivo = evento.target.files[0];
+            if (!archivo) return;
+
+            const rutaArchivo = archivo.path;
+            if (!rutaArchivo) {
+                mostrarNotificacion("No se pudo obtener la ruta del archivo seleccionado.", "error");
+                return;
+            }
+
+            mostrarConfirmacion(`¿Deseas importar el inventario desde "${archivo.name}" en SQLite?`, async () => {
+                const res = await ipcRenderer.invoke('cargar-csv-manual', rutaArchivo);
+                if (res.success) {
+                    mostrarNotificacion("Catálogo importado y guardado en SQLite con éxito.", "success");
+                } else {
+                    mostrarNotificacion("Error al importar el archivo: " + res.error, "error");
+                }
+            });
+            
+            inputArchivo.value = "";
+        });
+    }
+
+    // 3. Botón para cargar CSV por defecto
+    const btnCargarPredef = document.getElementById("btn-cargar-predef");
+    if (btnCargarPredef) {
+        btnCargarPredef.addEventListener("click", () => {
+            mostrarConfirmacion("¿Deseas sincronizar la base de datos con el archivo CSV por defecto?", async () => {
+                const res = await ipcRenderer.invoke('cargar-csv-manual', null);
+                if (res.success) {
+                    mostrarNotificacion("Base de datos sincronizada con el CSV por defecto.", "success");
+                } else {
+                    mostrarNotificacion("Error al sincronizar: " + res.error, "error");
+                }
+            });
+        });
+    }
+
+    // 4. Botón para exportar base de datos a CSV
+    const btnExportarCsv = document.getElementById("btn-exportar-csv");
+    if (btnExportarCsv) {
+        btnExportarCsv.addEventListener("click", async () => {
+            const res = await ipcRenderer.invoke('exportar-csv-manual');
+            if (res.success) {
+                mostrarNotificacion("Inventario exportado al archivo CSV de Excel correctamente.", "success");
+            } else {
+                mostrarNotificacion("Error al exportar inventario: " + res.error, "error");
+            }
+        });
+    }
 
     const formLibro = document.getElementById("form-libro");
     if (formLibro) {
@@ -203,7 +269,7 @@ async function agregarLibroAlInventario(evento) {
         inputCantidad.value = "";
         inputEstado.value = "Nuevo";
 
-        mostrarNotificacion("Libro agregado correctamente al inventario de SQLite.", "success");
+        mostrarNotificacion("Libro agregado correctamente al inventario.", "success");
     } else {
         mostrarNotificacion("Error al guardar libro en la BBDD: " + res.error, "error");
     }
@@ -261,7 +327,7 @@ function eliminarLibroDelInventario(codigo) {
         const res = await ipcRenderer.invoke('delete-libro', codigoBuscado);
         if (res.success) {
             await cargarDatosDesdeSQLite();
-            mostrarNotificacion("Libro eliminado del catálogo en SQLite.", "success");
+            mostrarNotificacion("Libro eliminado del catálogo.", "success");
         } else {
             mostrarNotificacion("Error al eliminar libro: " + res.error, "error");
         }
@@ -369,7 +435,7 @@ async function registrarNuevaReserva() {
         inputUsuario.value = "";
         inputFecha.value = "";
 
-        mostrarNotificacion("¡Reserva confirmada y persistida con éxito en SQLite!", "success");
+        mostrarNotificacion("¡Reserva confirmada con éxito!", "success");
     } else {
         mostrarNotificacion(res.error, "error");
     }
