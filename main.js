@@ -57,20 +57,21 @@ function dbQueryGet(sql, params = []) {
     return result;
 }
 
+function resolveId(table, name) {
+    if (!name) return null;
+    const trimmedName = name.trim();
+    const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [trimmedName]);
+    if (existing) return existing.id;
+    db.run(`INSERT OR IGNORE INTO "${table}" (nombre) VALUES (?)`, [trimmedName]);
+    const afterInsert = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [trimmedName]);
+    return afterInsert ? afterInsert.id : null;
+}
+
 // Importar archivo CSV de forma síncrona para la inicialización
 function importarCSVSync(filePath) {
     try {
         const content = fs.readFileSync(filePath, { encoding: 'latin1' });
         const lines = content.split(/\r?\n/);
-        
-        const resolveId = (table, name) => {
-            if (!name) return null;
-            const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [name.trim()]);
-            if (existing) return existing.id;
-            db.run(`INSERT INTO "${table}" (nombre) VALUES (?)`, [name.trim()]);
-            const last = dbQueryGet(`SELECT last_insert_rowid() as id`);
-            return last ? last.id : null;
-        };
 
         db.run("BEGIN TRANSACTION");
         for (const line of lines) {
@@ -164,15 +165,6 @@ async function importarCSV(filePath) {
 
     try {
         db.run("BEGIN TRANSACTION");
-
-        const resolveId = (table, name) => {
-            if (!name) return null;
-            const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [name.trim()]);
-            if (existing) return existing.id;
-            db.run(`INSERT INTO "${table}" (nombre) VALUES (?)`, [name.trim()]);
-            const last = dbQueryGet(`SELECT last_insert_rowid() as id`);
-            return last ? last.id : null;
-        };
 
         for (const celdas of rowsToProcess) {
             if (celdas.length >= 6) {
@@ -475,15 +467,6 @@ ipcMain.handle('get-libros', () => {
 // 3. Guardar o actualizar libro
 ipcMain.handle('add-libro', (event, libro) => {
     try {
-        const resolveId = (table, name) => {
-            if (!name) return null;
-            const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [name.trim()]);
-            if (existing) return existing.id;
-            db.run(`INSERT INTO "${table}" (nombre) VALUES (?)`, [name.trim()]);
-            saveToDisk();
-            const last = dbQueryGet(`SELECT last_insert_rowid() as id`);
-            return last ? last.id : null;
-        };
 
         const idEditorial = typeof libro.id_editorial === 'string' 
             ? resolveId('editoriales', libro.id_editorial) 
