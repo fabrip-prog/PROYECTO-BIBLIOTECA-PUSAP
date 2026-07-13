@@ -1,66 +1,68 @@
 import { inventarioLibros, actualizarTablaInventario, db_tablas_maestras, resolverIdMaestra } from './libros.js';
 
-// Arreglo en memoria para las reservas
+// Importación segura de ipcRenderer de Electron
+const { ipcRenderer } = window.require ? window.require('electron') : {
+    invoke: async (channel, ...args) => {
+        console.warn(`IPC Mock: ${channel}`, args);
+        if (channel === 'get-maestras') return { estados: [], asignatura: [], editoriales: [] };
+        if (channel === 'get-libros') return [];
+        if (channel === 'get-reservas') return [];
+        return { success: true };
+    }
+};
+
+// Arreglos en memoria locales para vistas
 const historialReservas = [];
 let reservaSeleccionadaParaDevolver = null;
 let confirmacionCallback = null;
 
-function guardarDatosPersistentes() {
-    localStorage.setItem("inventario_libros_sql", JSON.stringify(inventarioLibros));
-    localStorage.setItem("db_tablas_maestras", JSON.stringify(db_tablas_maestras));
-    localStorage.setItem("historial_reservas", JSON.stringify(historialReservas));
-}
+// Cargar todos los datos de manera síncrona en la vista desde la base de datos real SQLite
+async function cargarDatosDesdeSQLite() {
+    try {
+        console.log("Cargando datos relacionales desde la base de datos SQLite...");
 
-function normalizarInventario() {
-    inventarioLibros.forEach(libro => {
-        const total = Number(libro.cantidad) || 0;
-        const disponible = Number(libro.cantidad_disponible) || 0;
-        libro.cantidad_disponible = Math.max(disponible, total);
-    });
+        // 1. Cargar tablas maestras
+        const maestras = await ipcRenderer.invoke('get-maestras');
+        if (maestras) {
+            db_tablas_maestras.estados.length = 0;
+            db_tablas_maestras.estados.push(...(maestras.estados || []));
+            db_tablas_maestras.asignatura.length = 0;
+            db_tablas_maestras.asignatura.push(...(maestras.asignatura || []));
+            db_tablas_maestras.editoriales.length = 0;
+            db_tablas_maestras.editoriales.push(...(maestras.editoriales || []));
+        }
+
+        // 2. Cargar inventario de libros
+        const libros = await ipcRenderer.invoke('get-libros');
+        if (libros) {
+            inventarioLibros.length = 0;
+            inventarioLibros.push(...libros);
+            actualizarTablaInventario();
+        }
+
+        // 3. Cargar reservas activas e historial
+        const reservas = await ipcRenderer.invoke('get-reservas');
+        if (reservas) {
+            historialReservas.length = 0;
+            historialReservas.push(...reservas);
+            actualizarTablaReservas();
+        }
+    } catch (err) {
+        console.error("Error al sincronizar datos con SQLite:", err);
+        mostrarNotificacion("Error al sincronizar con la base de datos física.", "error");
+    }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    console.log("Inicializando el Sistema de Gestión unificado...");
+    console.log("Inicializando el Sistema de Gestión con persistencia SQLite y Control de Reservas...");
     cerrarModalDevolucion();
 
-    const datosMaestras = localStorage.getItem("db_tablas_maestras");
-    if (datosMaestras) {
-        const maestraPersistida = JSON.parse(datosMaestras);
-        db_tablas_maestras.estados.length = 0;
-        db_tablas_maestras.estados.push(...(maestraPersistida.estados || []));
-        db_tablas_maestras.asignatura.length = 0;
-        db_tablas_maestras.asignatura.push(...(maestraPersistida.asignatura || []));
-        db_tablas_maestras.editoriales.length = 0;
-        db_tablas_maestras.editoriales.push(...(maestraPersistida.editoriales || []));
-    }
-
-    // 1. CONTROL Y CARGA DEL INVENTARIO DE LIBROS
-    const datosLocales = localStorage.getItem("inventario_libros_sql");
-    if (datosLocales) {
-        const parsed = JSON.parse(datosLocales);
-        if (parsed && parsed.length > 0) {
-            inventarioLibros.length = 0;
-            inventarioLibros.push(...parsed);
-            normalizarInventario();
-            guardarDatosPersistentes();
-            actualizarTablaInventario();
-        } else {
-            cargarDatosDesdeSQL();
-        }
-    } else {
-        cargarDatosDesdeSQL();
-    }
+    // Carga de base de datos inicializada
+    cargarDatosDesdeSQLite();
 
     const formLibro = document.getElementById("form-libro");
     if (formLibro) {
         formLibro.addEventListener("submit", agregarLibroAlInventario);
-    }
-
-    // 2. RECUPERAR HISTORIAL DE RESERVAS PREVIAS
-    const guardadas = localStorage.getItem("historial_reservas");
-    if (guardadas) {
-        historialReservas.push(...JSON.parse(guardadas));
-        actualizarTablaReservas();
     }
 
     const tbodyInventario = document.querySelector("#tabla-inventario tbody");
@@ -73,15 +75,21 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 3. ASIGNAR EL ESCUCHADOR DIRECTO AL BOTÓN DE RESERVAS
+    // Escuchador de confirmación de reserva
     const btnConfirmar = document.getElementById("btn-confirmar-reserva");
     if (btnConfirmar) {
-        console.log("Botón de confirmación de reserva detectado y vinculado con éxito.");
         btnConfirmar.addEventListener("click", registrarNuevaReserva);
     } else {
         console.error("Error crítico: No se encontró el botón con ID 'btn-confirmar-reserva' en el HTML.");
     }
 
+    // Escuchador para limpiar historial de reservas devueltas
+    const btnLimpiarHistorial = document.getElementById("btn-limpiar-historial");
+    if (btnLimpiarHistorial) {
+        btnLimpiarHistorial.addEventListener("click", limpiarHistorialReservasDevueltas);
+    }
+
+    // Escuchadores de los modales de devolución y confirmación
     const btnCancelarDevolucion = document.getElementById("btn-cancelar-devolucion");
     const btnConfirmarDevolucion = document.getElementById("btn-confirmar-devolucion");
     const modalDevolucion = document.getElementById("modal-devolucion");
@@ -136,29 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-// Función encargada de inyectar el catálogo inicial de 8 libros relacionales
-function cargarDatosDesdeSQL() {
-    console.log("Inyectando catálogo relacional de contingencia...");
-    inventarioLibros.length = 0; 
-    
-    const librosSeguros = [
-        { codigo: 1, titulo: 'Historia Socioeconómica de la Argentina. 1776-1860.', autor: 'Jonathan Brown', id_editorial: 1, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 1 },
-        { codigo: 2, titulo: 'Manual de Derecho Penal- Parte Especial (Segunda Edición)', autor: 'Ricardo C. Nuñez - Victor F. Reinaldi', id_editorial: 2, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-        { codigo: 3, titulo: 'Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II', autor: 'Francisco J. D\'Albora - Nicolás F. D\'Albora', id_editorial: 3, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-        { codigo: 4, titulo: 'Tratado de los Cheques', autor: 'Osvaldo R. Gómez Leo', id_editorial: 4, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-        { codigo: 5, titulo: 'Curso de Filosofia', autor: 'Carlos Escobar Saravia', id_editorial: 5, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 3 },
-        { codigo: 6, titulo: 'Títulos de Crédito', autor: 'Ignacio A. Escuti', id_editorial: 6, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-        { codigo: 7, titulo: 'El Ciclo de la llusión y el Desencanto', autor: 'Pablo Gerchunoff - Lucas Llach', id_editorial: 7, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 },
-        { codigo: 8, titulo: 'Teoría Microeconómica', autor: 'John P. Gould-Edward P. Lazear', id_editorial: 8, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 }
-    ];
-
-    librosSeguros.forEach(libro => inventarioLibros.push(libro));
-    normalizarInventario();
-    guardarDatosPersistentes();
-    actualizarTablaInventario();
-}
-
-function agregarLibroAlInventario(evento) {
+async function agregarLibroAlInventario(evento) {
     evento.preventDefault();
 
     const inputId = document.getElementById("libro-id");
@@ -174,7 +160,8 @@ function agregarLibroAlInventario(evento) {
         return;
     }
 
-    const codigo = inputId.value.trim();
+    const codigoStr = inputId.value.trim();
+    const codigo = parseInt(codigoStr, 10);
     const titulo = inputTitulo.value.trim();
     const autor = inputAutor.value.trim();
     const editorial = inputEditorial.value.trim();
@@ -182,44 +169,44 @@ function agregarLibroAlInventario(evento) {
     const cantidad = parseInt(inputCantidad.value, 10);
     const estado = inputEstado.value.trim();
 
-    if (!codigo || !titulo || !autor || !editorial || !asignatura || Number.isNaN(cantidad) || cantidad < 1) {
-        mostrarNotificacion("Por favor, completa todos los campos antes de guardar el libro.", "error");
+    if (Number.isNaN(codigo) || !titulo || !autor || !editorial || !asignatura || Number.isNaN(cantidad) || cantidad < 1) {
+        mostrarNotificacion("Por favor, completa todos los campos con valores válidos. El código de libro debe ser numérico.", "error");
         return;
     }
 
-    const existe = inventarioLibros.some(libro => String(libro.codigo) === codigo);
+    const existe = inventarioLibros.some(libro => Number(libro.codigo) === codigo);
     if (existe) {
         mostrarNotificacion(`El código "${codigo}" ya existe en el inventario.`, "error");
         return;
     }
 
-    const idEditorial = resolverIdMaestra(db_tablas_maestras.editoriales, editorial);
-    const idAsignatura = resolverIdMaestra(db_tablas_maestras.asignatura, asignatura);
-
-    inventarioLibros.push({
+    const nuevoLibro = {
         codigo,
         titulo,
         autor,
-        id_editorial: idEditorial,
+        id_editorial: editorial,
         cantidad,
         cantidad_disponible: cantidad,
         id_estado: 1,
-        estado_text: estado,
-        id_asignatura: idAsignatura
-    });
+        id_asignatura: asignatura
+    };
 
-    guardarDatosPersistentes();
-    actualizarTablaInventario();
+    const res = await ipcRenderer.invoke('add-libro', nuevoLibro);
+    if (res.success) {
+        await cargarDatosDesdeSQLite();
 
-    inputId.value = "";
-    inputTitulo.value = "";
-    inputAutor.value = "";
-    inputEditorial.value = "";
-    inputAsignatura.value = "";
-    inputCantidad.value = "";
-    inputEstado.value = "Nuevo";
+        inputId.value = "";
+        inputTitulo.value = "";
+        inputAutor.value = "";
+        inputEditorial.value = "";
+        inputAsignatura.value = "";
+        inputCantidad.value = "";
+        inputEstado.value = "Nuevo";
 
-    mostrarNotificacion("Libro agregado correctamente al inventario.", "success");
+        mostrarNotificacion("Libro agregado correctamente al inventario de SQLite.", "success");
+    } else {
+        mostrarNotificacion("Error al guardar libro en la BBDD: " + res.error, "error");
+    }
 }
 
 function mostrarNotificacion(mensaje, tipo = "info") {
@@ -262,20 +249,22 @@ function cerrarConfirmacion() {
 }
 
 function eliminarLibroDelInventario(codigo) {
-    const codigoBuscado = String(codigo);
-    const index = inventarioLibros.findIndex(libro => String(libro.codigo) === codigoBuscado);
+    const codigoBuscado = Number(codigo);
+    const libro = inventarioLibros.find(l => Number(l.codigo) === codigoBuscado);
 
-    if (index === -1) {
+    if (!libro) {
         mostrarNotificacion("No se encontró el libro a eliminar.", "error");
         return;
     }
 
-    const libro = inventarioLibros[index];
-    mostrarConfirmacion(`¿Deseas eliminar el libro "${libro.titulo}" del inventario?`, () => {
-        inventarioLibros.splice(index, 1);
-        guardarDatosPersistentes();
-        actualizarTablaInventario();
-        mostrarNotificacion("Libro eliminado del inventario.", "success");
+    mostrarConfirmacion(`¿Deseas eliminar el libro "${libro.titulo}" del catálogo de SQLite?`, async () => {
+        const res = await ipcRenderer.invoke('delete-libro', codigoBuscado);
+        if (res.success) {
+            await cargarDatosDesdeSQLite();
+            mostrarNotificacion("Libro eliminado del catálogo en SQLite.", "success");
+        } else {
+            mostrarNotificacion("Error al eliminar libro: " + res.error, "error");
+        }
     });
 }
 
@@ -318,26 +307,30 @@ function cerrarModalDevolucion() {
     reservaSeleccionadaParaDevolver = null;
 }
 
-function confirmarDevolucionReserva() {
+async function confirmarDevolucionReserva() {
     if (!reservaSeleccionadaParaDevolver) return;
 
     const textarea = document.getElementById("observaciones-devolucion");
     const observaciones = textarea ? textarea.value.trim() : "";
     const reserva = reservaSeleccionadaParaDevolver;
 
-    reserva.estado = "Devuelta";
-    reserva.observaciones = observaciones || "Sin observaciones";
-    reserva.fechaDevolucion = new Date().toISOString().split("T")[0];
+    const res = await ipcRenderer.invoke('devolver-reserva', {
+        idReserva: reserva.idReserva,
+        observaciones: observaciones || "Sin observaciones",
+        fechaDevolucion: new Date().toISOString().split("T")[0]
+    });
 
-    guardarDatosPersistentes();
-    actualizarTablaInventario();
-    actualizarTablaReservas();
-    cerrarModalDevolucion();
-    mostrarNotificacion("Reserva marcada como devuelta correctamente.", "success");
+    if (res.success) {
+        await cargarDatosDesdeSQLite();
+        cerrarModalDevolucion();
+        mostrarNotificacion("Reserva marcada como devuelta y stock reincorporado correctamente.", "success");
+    } else {
+        mostrarNotificacion("Error al procesar la devolución: " + res.error, "error");
+    }
 }
 
-// LÓGICA DE REGISTRO DE RESERVA
-function registrarNuevaReserva() {
+// LÓGICA DE REGISTRO DE RESERVA EN SQLITE
+async function registrarNuevaReserva() {
     const inputLibro = document.getElementById("id-libro-reserva");
     const inputReserva = document.getElementById("id-reserva");
     const inputUsuario = document.getElementById("usuario-lector");
@@ -359,48 +352,30 @@ function registrarNuevaReserva() {
         return;
     }
 
-    // 1. Buscar el libro en el inventario real
-    const libroEncontrado = inventarioLibros.find(l => String(l.codigo) === codigoBuscado);
-
-    if (!libroEncontrado) {
-        mostrarNotificacion(`Error: El código de libro [${codigoBuscado}] no existe en el catálogo.`, "error");
-        return;
-    }
-
-    // 2. Restaurar la disponibilidad visual del libro si quedó afectada por errores previos
-    const libroEncontradoActualizado = inventarioLibros.find(l => String(l.codigo) === codigoBuscado);
-    if (libroEncontradoActualizado) {
-        const total = Number(libroEncontradoActualizado.cantidad) || 0;
-        libroEncontradoActualizado.cantidad_disponible = Math.max(Number(libroEncontradoActualizado.cantidad_disponible) || 0, total);
-        guardarDatosPersistentes();
-        actualizarTablaInventario();
-    }
-
-    // 3. Registrar en el historial de reservas
     const nuevaReserva = {
         idLibro: codigoBuscado,
         idReserva: idReserva,
         usuario: usuario,
-        fecha: fecha,
-        estado: "Activa",
-        observaciones: "",
-        fechaDevolucion: ""
+        fecha: fecha
     };
 
-    historialReservas.push(nuevaReserva);
-    localStorage.setItem("historial_reservas", JSON.stringify(historialReservas));
-    actualizarTablaReservas();
+    const res = await ipcRenderer.invoke('add-reserva', nuevaReserva);
+    if (res.success) {
+        await cargarDatosDesdeSQLite();
 
-    // Limpieza de campos del formulario
-    inputLibro.value = "";
-    inputReserva.value = "";
-    inputUsuario.value = "";
-    inputFecha.value = "";
+        // Limpieza de campos del formulario
+        inputLibro.value = "";
+        inputReserva.value = "";
+        inputUsuario.value = "";
+        inputFecha.value = "";
 
-    mostrarNotificacion("¡Reserva confirmada con éxito!", "success");
+        mostrarNotificacion("¡Reserva confirmada y persistida con éxito en SQLite!", "success");
+    } else {
+        mostrarNotificacion(res.error, "error");
+    }
 }
 
-// Función encargada de dibujar el historial inferior
+// Función encargada de dibujar el historial de reservas en la vista
 function actualizarTablaReservas() {
     const tbody = document.querySelector("#tabla-reservas tbody");
     const tbodyDevueltas = document.querySelector("#tabla-reservas-devueltas tbody");
@@ -447,5 +422,23 @@ function actualizarTablaReservas() {
 
     tbody.querySelectorAll('button[data-accion="devolver-reserva"]').forEach(boton => {
         boton.addEventListener('click', () => abrirModalDevolucion(boton.dataset.idReserva));
+    });
+}
+
+async function limpiarHistorialReservasDevueltas() {
+    const devueltas = historialReservas.filter(res => String(res.estado).toLowerCase() === "devuelta");
+    if (devueltas.length === 0) {
+        mostrarNotificacion("No hay reservas devueltas en el historial para limpiar.", "info");
+        return;
+    }
+
+    mostrarConfirmacion("¿Deseas limpiar todo el historial de reservas devueltas en SQLite?", async () => {
+        const res = await ipcRenderer.invoke('limpiar-historial-devueltas');
+        if (res.success) {
+            await cargarDatosDesdeSQLite();
+            mostrarNotificacion("Historial de devoluciones limpiado correctamente.", "success");
+        } else {
+            mostrarNotificacion("Error al limpiar el historial: " + res.error, "error");
+        }
     });
 }

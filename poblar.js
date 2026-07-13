@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS "libros" (
     CONSTRAINT chk_consistencia_stock CHECK ("cantidad_disponible" <= "cantidad")
 );
 
+CREATE TABLE IF NOT EXISTS "reservas" (
+	"id_reserva"	TEXT,
+	"codigo_libro"	INTEGER,
+	"usuario"	TEXT NOT NULL,
+	"fecha_reserva"	TEXT NOT NULL,
+	"estado"	TEXT NOT NULL DEFAULT 'Activa',
+	"observaciones"	TEXT DEFAULT '',
+	"fecha_devolucion"	TEXT DEFAULT '',
+	PRIMARY KEY("id_reserva"),
+	FOREIGN KEY("codigo_libro") REFERENCES "libros"("codigo")
+);
+
 INSERT OR IGNORE INTO estados (id, condicion) VALUES (1, '1 usado/nuevo');
 
 INSERT OR IGNORE INTO asignatura (id, nombre) VALUES 

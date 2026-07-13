@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS "libros" (
     CONSTRAINT chk_consistencia_stock CHECK ("cantidad_disponible" <= "cantidad")
 );
 
+CREATE TABLE IF NOT EXISTS "reservas" (
+	"id_reserva"	TEXT,
+	"codigo_libro"	INTEGER,
+	"usuario"	TEXT NOT NULL,
+	"fecha_reserva"	TEXT NOT NULL,
+	"estado"	TEXT NOT NULL DEFAULT 'Activa',
+	"observaciones"	TEXT DEFAULT '',
+	"fecha_devolucion"	TEXT DEFAULT '',
+	PRIMARY KEY("id_reserva"),
+	FOREIGN KEY("codigo_libro") REFERENCES "libros"("codigo")
+);
+
 -- ==========================================
 -- PUNTO 2: CARGA DE DATOS (DML)
 -- ==========================================
