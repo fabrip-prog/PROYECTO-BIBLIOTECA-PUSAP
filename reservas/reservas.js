@@ -1,4 +1,4 @@
-import { inventarioLibros, actualizarTablaInventario } from './libros.js';
+import { inventarioLibros, actualizarTablaInventario } from '../js/libros.js';
 
 export const historialReservas = [];
 

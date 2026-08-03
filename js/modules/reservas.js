@@ -1,0 +1,154 @@
+import { historialReservas } from '../state.js';
+import { ipcService } from '../services/ipcService.js';
+import { mostrarNotificacion } from '../ui/notificaciones.js';
+import { mostrarConfirmacion, abrirModalDevolucion, cerrarModalDevolucion, getReservaSeleccionadaParaDevolver } from '../ui/modales.js';
+
+/**
+ * Renderiza las tablas de reservas activas y reservas devueltas
+ */
+export function actualizarTablaReservas() {
+    const tbody = document.querySelector("#tabla-reservas tbody");
+    const tbodyDevueltas = document.querySelector("#tabla-reservas-devueltas tbody");
+    if (!tbody || !tbodyDevueltas) return;
+
+    const reservasActivas = historialReservas.filter(res => String(res.estado).toLowerCase() !== "devuelta");
+    const reservasDevueltas = historialReservas.filter(res => String(res.estado).toLowerCase() === "devuelta");
+
+    tbody.innerHTML = "";
+    if (reservasActivas.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas activas en este momento.</td></tr>`;
+    } else {
+        reservasActivas.forEach(res => {
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+                <td>${res.idLibro}</td>
+                <td>${res.idReserva}</td>
+                <td>${res.usuario}</td>
+                <td>${res.fecha}</td>
+                <td><span style="color: #319795; font-weight: bold;">${res.estado}</span></td>
+                <td><button type="button" class="btn" data-accion="devolver-reserva" data-id-reserva="${res.idReserva}">Devolver</button></td>
+            `;
+            tbody.appendChild(fila);
+        });
+    }
+
+    tbodyDevueltas.innerHTML = "";
+    if (reservasDevueltas.length === 0) {
+        tbodyDevueltas.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas devueltas aún.</td></tr>`;
+    } else {
+        reservasDevueltas.forEach(res => {
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+                <td>${res.idLibro}</td>
+                <td>${res.idReserva}</td>
+                <td>${res.usuario}</td>
+                <td>${res.fecha}</td>
+                <td>${res.fechaDevolucion || "-"}</td>
+                <td>${res.observaciones || "Sin observaciones"}</td>
+            `;
+            tbodyDevueltas.appendChild(fila);
+        });
+    }
+
+    tbody.querySelectorAll('button[data-accion="devolver-reserva"]').forEach(boton => {
+        boton.addEventListener('click', () => abrirModalDevolucion(boton.dataset.idReserva));
+    });
+}
+
+/**
+ * Registra una nueva reserva en la base de datos
+ */
+export async function registrarNuevaReserva(reloadCallback) {
+    const inputLibro = document.getElementById("id-libro-reserva");
+    const inputReserva = document.getElementById("id-reserva");
+    const inputUsuario = document.getElementById("usuario-lector");
+    const inputFecha = document.getElementById("fecha-reserva");
+
+    if (!inputLibro || !inputReserva || !inputUsuario || !inputFecha) {
+        mostrarNotificacion("Error de interfaz: Faltan elementos en el formulario HTML.", "error");
+        return;
+    }
+
+    const codigoBuscado = inputLibro.value.trim();
+    const idReserva = inputReserva.value.trim();
+    const usuario = inputUsuario.value.trim();
+    const fecha = inputFecha.value;
+
+    if (!codigoBuscado || !idReserva || !usuario || !fecha) {
+        mostrarNotificacion("Por favor, complete todos los campos del formulario antes de confirmar.", "error");
+        return;
+    }
+
+    const nuevaReserva = {
+        idLibro: codigoBuscado,
+        idReserva: idReserva,
+        usuario: usuario,
+        fecha: fecha
+    };
+
+    const res = await ipcService.addReserva(nuevaReserva);
+    if (res.success) {
+        if (typeof reloadCallback === 'function') {
+            await reloadCallback();
+        }
+
+        inputLibro.value = "";
+        inputReserva.value = "";
+        inputUsuario.value = "";
+        inputFecha.value = "";
+
+        mostrarNotificacion("¡Reserva confirmada con éxito!", "success");
+    } else {
+        mostrarNotificacion(res.error, "error");
+    }
+}
+
+/**
+ * Confirma la devolución de un libro prestado
+ */
+export async function confirmarDevolucionReserva(reloadCallback) {
+    const reserva = getReservaSeleccionadaParaDevolver();
+    if (!reserva) return;
+
+    const textarea = document.getElementById("observaciones-devolucion");
+    const observaciones = textarea ? textarea.value.trim() : "";
+
+    const res = await ipcService.devolverReserva({
+        idReserva: reserva.idReserva,
+        observaciones: observaciones || "Sin observaciones",
+        fechaDevolucion: new Date().toISOString().split("T")[0]
+    });
+
+    if (res.success) {
+        if (typeof reloadCallback === 'function') {
+            await reloadCallback();
+        }
+        cerrarModalDevolucion();
+        mostrarNotificacion("Reserva marcada como devuelta y stock reincorporado correctamente.", "success");
+    } else {
+        mostrarNotificacion("Error al procesar la devolución: " + res.error, "error");
+    }
+}
+
+/**
+ * Limpia el historial de reservas que ya fueron devueltas
+ */
+export async function limpiarHistorialReservasDevueltas(reloadCallback) {
+    const devueltas = historialReservas.filter(res => String(res.estado).toLowerCase() === "devuelta");
+    if (devueltas.length === 0) {
+        mostrarNotificacion("No hay reservas devueltas en el historial para limpiar.", "info");
+        return;
+    }
+
+    mostrarConfirmacion("¿Deseas limpiar todo el historial de reservas devueltas en SQLite?", async () => {
+        const res = await ipcService.limpiarHistorialDevueltas();
+        if (res.success) {
+            if (typeof reloadCallback === 'function') {
+                await reloadCallback();
+            }
+            mostrarNotificacion("Historial de devoluciones limpiado correctamente.", "success");
+        } else {
+            mostrarNotificacion("Error al limpiar el historial: " + res.error, "error");
+        }
+    });
+}

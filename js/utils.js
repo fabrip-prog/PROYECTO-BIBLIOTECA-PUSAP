@@ -1,25 +1,6 @@
-// Simulación de las Tablas Relacionales del Motor SQL
-export const db_tablas_maestras = {
-    estados: [
-        { id: 1, condicion: '1 usado/nuevo' }
-    ],
-    asignatura: [
-        { id: 1, nombre: 'Historia/Economía' },
-        { id: 2, nombre: 'Derecho' },
-        { id: 3, nombre: 'Filosofía' },
-        { id: 4, nombre: 'Economia' }
-    ],
-    editoriales: [
-        { id: 1, nombre: 'Siglo Veintiuno de Argentina Editores (en coedición con el Instituto Di Tella)' },
-        { id: 2, nombre: 'Marcos Lerner Editora Cordoba' },
-        { id: 3, nombre: 'LexisNexis Abeledo-Perrot' },
-        { id: 4, nombre: 'LexisNexis' },
-        { id: 5, nombre: 'Virtudes Editorial Universitaria' },
-        { id: 6, nombre: 'Astrea' },
-        { id: 7, nombre: 'Ariel Sociedad Económica.' },
-        { id: 8, nombre: 'Fondo de Cultura Económica' }
-    ]
-};
+import { db_tablas_maestras } from './state.js';
+
+export { db_tablas_maestras };
 
 export function transformarCSV(textoBruto) {
     const lineas = textoBruto.split(/\r?\n/);
