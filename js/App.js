@@ -72,29 +72,18 @@ document.addEventListener("DOMContentLoaded", () => {
         mostrarNotificacion("Catálogo sincronizado automáticamente con Excel.", "success");
     });
 
-    // 2. Control de carga manual de CSV (Excel)
+    // 2. Control de carga manual de CSV (Excel) mediante selector nativo
     const inputArchivo = document.getElementById("archivo-excel-libros");
     if (inputArchivo) {
-        inputArchivo.addEventListener("change", async (evento) => {
-            const archivo = evento.target.files[0];
-            if (!archivo) return;
-
-            const rutaArchivo = archivo.path;
-            if (!rutaArchivo) {
-                mostrarNotificacion("No se pudo obtener la ruta del archivo seleccionado.", "error");
-                return;
+        inputArchivo.addEventListener("click", async (evento) => {
+            evento.preventDefault();
+            const res = await ipcService.seleccionarYCargarCSV();
+            if (res && res.success) {
+                await cargarDatosDesdeSQLite();
+                mostrarNotificacion("Catálogo importado y guardado en SQLite con éxito.", "success");
+            } else if (res && res.error) {
+                mostrarNotificacion("Error al importar el archivo: " + res.error, "error");
             }
-
-            mostrarConfirmacion(`¿Deseas importar el inventario desde "${archivo.name}" en SQLite?`, async () => {
-                const res = await ipcService.cargarCSVManual(rutaArchivo);
-                if (res.success) {
-                    mostrarNotificacion("Catálogo importado y guardado en SQLite con éxito.", "success");
-                } else {
-                    mostrarNotificacion("Error al importar el archivo: " + res.error, "error");
-                }
-            });
-            
-            inputArchivo.value = "";
         });
     }
 
@@ -105,6 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
             mostrarConfirmacion("¿Deseas sincronizar la base de datos con el archivo CSV por defecto?", async () => {
                 const res = await ipcService.cargarCSVManual(null);
                 if (res.success) {
+                    await cargarDatosDesdeSQLite();
                     mostrarNotificacion("Base de datos sincronizada con el CSV por defecto.", "success");
                 } else {
                     mostrarNotificacion("Error al sincronizar: " + res.error, "error");

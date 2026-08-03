@@ -1,6 +1,7 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog } from 'electron';
 import { getDb, dbQueryAll, dbQueryGet, resolveId, saveToDisk, csvPath } from './db.js';
 import { importarCSV, exportarCSV } from './csvService.js';
+import { getMainWindow } from './windowManager.js';
 
 /**
  * Registra todos los canales IPC de Electron para comunicación con el Renderer Process
@@ -212,7 +213,12 @@ export function registrarIpcHandlers() {
     ipcMain.handle('cargar-csv-manual', async (event, filePath) => {
         try {
             const pathAImportar = filePath || csvPath;
-            await importarCSV(pathAImportar);
+            const mainWindow = getMainWindow();
+            await importarCSV(pathAImportar, () => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('db-actualizada');
+                }
+            });
             return { success: true };
         } catch (err) {
             console.error("Error en importar CSV manual:", err);
@@ -227,6 +233,36 @@ export function registrarIpcHandlers() {
             return { success: true };
         } catch (err) {
             console.error("Error en exportar CSV manual:", err);
+            return { success: false, error: err.message };
+        }
+    });
+
+    // 11. Seleccionar archivo CSV mediante cuadro de diálogo nativo de Windows
+    ipcMain.handle('seleccionar-y-cargar-csv', async () => {
+        try {
+            const mainWindow = getMainWindow();
+            const result = await dialog.showOpenDialog(mainWindow, {
+                title: 'Seleccionar inventario de libros (CSV de Excel)',
+                filters: [
+                    { name: 'Archivos CSV (*.csv)', extensions: ['csv'] },
+                    { name: 'Todos los archivos', extensions: ['*'] }
+                ],
+                properties: ['openFile']
+            });
+
+            if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+                return { success: false, canceled: true };
+            }
+
+            const filePath = result.filePaths[0];
+            await importarCSV(filePath, () => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('db-actualizada');
+                }
+            });
+            return { success: true, filePath };
+        } catch (err) {
+            console.error("Error en seleccionar-y-cargar-csv:", err);
             return { success: false, error: err.message };
         }
     });

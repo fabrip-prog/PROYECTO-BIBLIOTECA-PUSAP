@@ -50,6 +50,9 @@ export const ipcService = {
     cargarCSVManual(filePath) {
         return this.invoke('cargar-csv-manual', filePath);
     },
+    seleccionarYCargarCSV() {
+        return this.invoke('seleccionar-y-cargar-csv');
+    },
     exportarCSVManual() {
         return this.invoke('exportar-csv-manual');
     },

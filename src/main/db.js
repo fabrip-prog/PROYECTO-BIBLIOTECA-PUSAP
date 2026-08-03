@@ -1,15 +1,45 @@
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
 import initSqlJs from 'sql.js';
+import { app } from 'electron';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Directorio raíz de la aplicación (donde residen index.html, etc.)
+export const rootDir = app.getAppPath();
+// En modo empaquetado (.exe), las bases de datos y CSV se guardan junto al ejecutable o directorio de usuario
+export const userDir = app.isPackaged ? path.dirname(process.execPath) : rootDir;
 
-// Directorio raíz del proyecto (subir 2 niveles desde src/main)
-export const rootDir = path.resolve(__dirname, '../../');
-export const dbPath = path.join(rootDir, 'biblioteca.db');
-export const csvPath = path.join(rootDir, 'Base_Datos_Libros_pusap.csv');
+export const dbPath = path.join(userDir, 'biblioteca.db');
+export const csvPath = path.join(userDir, 'Base_Datos_Libros_pusap.csv');
+
+// Lista de rutas posibles donde puede ubicarse el CSV para vigilar y sincronizar
+export const csvPathsCandidates = Array.from(new Set([
+    csvPath,
+    path.join(rootDir, 'Base_Datos_Libros_pusap.csv'),
+    path.resolve(userDir, '../../Base_Datos_Libros_pusap.csv'),
+    path.join(process.cwd(), 'Base_Datos_Libros_pusap.csv')
+])).filter(Boolean);
+
+function asegurarArchivosPersistentes() {
+    if (app.isPackaged) {
+        const bundledDb = path.join(rootDir, 'biblioteca.db');
+        const bundledCsv = path.join(rootDir, 'Base_Datos_Libros_pusap.csv');
+
+        if (!fs.existsSync(dbPath) && fs.existsSync(bundledDb)) {
+            try {
+                fs.copyFileSync(bundledDb, dbPath);
+            } catch (err) {
+                console.error("Error copiando biblioteca.db base:", err);
+            }
+        }
+        if (!fs.existsSync(csvPath) && fs.existsSync(bundledCsv)) {
+            try {
+                fs.copyFileSync(bundledCsv, csvPath);
+            } catch (err) {
+                console.error("Error copiando Base_Datos_Libros_pusap.csv base:", err);
+            }
+        }
+    }
+}
 
 let SQL = null;
 let db = null;
@@ -18,8 +48,18 @@ let db = null;
  * Inicializa el motor sql.js y la conexión a la base de datos
  */
 export async function initDatabase() {
+    asegurarArchivosPersistentes();
+
     if (!SQL) {
-        SQL = await initSqlJs();
+        const wasmPath = path.join(rootDir, 'node_modules/sql.js/dist/sql-wasm.wasm');
+        SQL = await initSqlJs({
+            locateFile: file => {
+                if (file.endsWith('.wasm') && fs.existsSync(wasmPath)) {
+                    return wasmPath;
+                }
+                return file;
+            }
+        });
     }
     if (fs.existsSync(dbPath)) {
         const filebuffer = fs.readFileSync(dbPath);
