@@ -11,12 +11,34 @@ export function actualizarTablaReservas() {
     const tbodyDevueltas = document.querySelector("#tabla-reservas-devueltas tbody");
     if (!tbody || !tbodyDevueltas) return;
 
-    const reservasActivas = historialReservas.filter(res => String(res.estado).toLowerCase() !== "devuelta");
-    const reservasDevueltas = historialReservas.filter(res => String(res.estado).toLowerCase() === "devuelta");
+    const inputBuscadorReservas = document.getElementById("buscador-reservas");
+    const filtroReservas = inputBuscadorReservas ? inputBuscadorReservas.value.trim().toLowerCase() : "";
+
+    const inputBuscadorHistorial = document.getElementById("buscador-historial");
+    const filtroHistorial = inputBuscadorHistorial ? inputBuscadorHistorial.value.trim().toLowerCase() : "";
+
+    const reservasActivas = historialReservas.filter(res => {
+        const esActiva = String(res.estado).toLowerCase() !== "devuelta";
+        if (!esActiva) return false;
+        if (!filtroReservas) return true;
+        const usuarioStr = String(res.usuario || '').toLowerCase();
+        return usuarioStr.includes(filtroReservas);
+    });
+
+    const reservasDevueltas = historialReservas.filter(res => {
+        const esDevuelta = String(res.estado).toLowerCase() === "devuelta";
+        if (!esDevuelta) return false;
+        if (!filtroHistorial) return true;
+        const usuarioStr = String(res.usuario || '').toLowerCase();
+        return usuarioStr.includes(filtroHistorial);
+    });
 
     tbody.innerHTML = "";
     if (reservasActivas.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas activas en este momento.</td></tr>`;
+        const mensaje = filtroReservas
+            ? `No se encontraron reservas activas para el usuario "${filtroReservas}".`
+            : "No hay reservas activas en este momento.";
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">${mensaje}</td></tr>`;
     } else {
         reservasActivas.forEach(res => {
             const fila = document.createElement("tr");
@@ -34,7 +56,10 @@ export function actualizarTablaReservas() {
 
     tbodyDevueltas.innerHTML = "";
     if (reservasDevueltas.length === 0) {
-        tbodyDevueltas.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">No hay reservas devueltas aún.</td></tr>`;
+        const mensajeDevueltas = filtroHistorial
+            ? `No se encontraron devoluciones en el historial para el usuario "${filtroHistorial}".`
+            : "No hay reservas devueltas aún.";
+        tbodyDevueltas.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">${mensajeDevueltas}</td></tr>`;
     } else {
         reservasDevueltas.forEach(res => {
             const fila = document.createElement("tr");

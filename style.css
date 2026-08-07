@@ -480,7 +480,7 @@ button[data-accion="devolver-reserva"]:hover {
     user-select: none;
 }
 
-#buscador-libros {
+.buscador-contenedor input {
     border: none !important;
     outline: none !important;
     box-shadow: none !important;
@@ -493,7 +493,7 @@ button[data-accion="devolver-reserva"]:hover {
     background: transparent;
 }
 
-#buscador-libros::placeholder {
+.buscador-contenedor input::placeholder {
     color: var(--text-light);
 }
 

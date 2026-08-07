@@ -135,11 +135,25 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 7. Buscador en tiempo real para filtrar inventario
+    // 7. Buscador en tiempo real para filtrar inventario y reservas por usuario
     const buscadorLibros = document.getElementById("buscador-libros");
     if (buscadorLibros) {
         buscadorLibros.addEventListener("input", () => {
             actualizarTablaInventario();
+        });
+    }
+
+    const buscadorReservas = document.getElementById("buscador-reservas");
+    if (buscadorReservas) {
+        buscadorReservas.addEventListener("input", () => {
+            actualizarTablaReservas();
+        });
+    }
+
+    const buscadorHistorial = document.getElementById("buscador-historial");
+    if (buscadorHistorial) {
+        buscadorHistorial.addEventListener("input", () => {
+            actualizarTablaReservas();
         });
     }
 
