@@ -11,6 +11,7 @@ export function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
+        icon: path.join(rootDir, 'icon.ico'),
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,

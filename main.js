@@ -18,6 +18,9 @@ iniciarVigilanteCSV(() => {
 
 // Ciclo de vida de la aplicación Electron
 app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+        app.setAppUserModelId('Sistema.Biblioteca.PUSAP');
+    }
     createWindow();
 });
 
