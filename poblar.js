@@ -7,7 +7,7 @@ const Database = require('better-sqlite3');
 // Nos paramos en la raíz del proyecto
 // Modificá esta línea en tu poblar.js para forzar la ruta real:
 // Cambiá la línea de rutaBBDD al principio de tu poblar.js por esto:
-const rutaBBDD = 'C:\\Users\\NuevaCuenta\\OneDrive\\Desktop\\Sistema-Bibliotecario\\biblioteca.db';
+const rutaBBDD = path.join(process.cwd(), 'biblioteca.db');
 const db = new Database(rutaBBDD);
 
 console.log("Iniciando la carga de datos en biblioteca.db...");
