@@ -2,6 +2,15 @@ import { inventarioLibros, db_tablas_maestras } from '../state.js';
 import { ipcService } from '../services/ipcService.js';
 import { mostrarNotificacion } from '../ui/notificaciones.js';
 import { mostrarConfirmacion } from '../ui/modales.js';
+import { escaparHTML } from '../utils.js';
+
+// Código del libro que se está editando (null = el formulario está en modo "agregar")
+let codigoEnEdicion = null;
+
+function nombreDe(lista, id, campo) {
+    const item = lista.find(e => e.id === id);
+    return item ? item[campo] : "";
+}
 
 /**
  * Renderiza la tabla del inventario de libros filtrando por el término de búsqueda
@@ -19,128 +28,176 @@ export function actualizarTablaInventario() {
     const inputBuscar = document.getElementById("buscador-libros");
     const filtro = inputBuscar ? inputBuscar.value.trim().toLowerCase() : "";
 
-    const librosFiltrados = inventarioLibros.filter(libro => {
+    // Se resuelven los nombres una vez por libro y se reutilizan para filtrar y para mostrar
+    const filas = inventarioLibros.map(libro => ({
+        libro,
+        editorial: nombreDe(db_tablas_maestras.editoriales, libro.id_editorial, "nombre"),
+        asignatura: nombreDe(db_tablas_maestras.asignatura, libro.id_asignatura, "nombre"),
+        estado: nombreDe(db_tablas_maestras.estados, libro.id_estado, "condicion")
+    }));
+
+    const filtradas = filas.filter(({ libro, editorial, asignatura, estado }) => {
         if (!filtro) return true;
-
-        const editorialObj = db_tablas_maestras.editoriales.find(e => e.id === libro.id_editorial);
-        const asignaturaObj = db_tablas_maestras.asignatura.find(a => a.id === libro.id_asignatura);
-        const estadoObj = db_tablas_maestras.estados.find(es => es.id === libro.id_estado);
-
-        const nombreEditorial = editorialObj ? editorialObj.nombre.toLowerCase() : `editorial #${libro.id_editorial}`;
-        const nombreAsignatura = asignaturaObj ? asignaturaObj.nombre.toLowerCase() : `asignatura #${libro.id_asignatura}`;
-        const condicionEstado = estadoObj ? estadoObj.condicion.toLowerCase() : '1 usado/nuevo';
-
-        const codigoStr = String(libro.codigo).toLowerCase();
-        const tituloStr = String(libro.titulo || '').toLowerCase();
-        const autorStr = String(libro.autor || '').toLowerCase();
-
-        return codigoStr.includes(filtro) ||
-               tituloStr.includes(filtro) ||
-               autorStr.includes(filtro) ||
-               nombreEditorial.includes(filtro) ||
-               nombreAsignatura.includes(filtro) ||
-               condicionEstado.includes(filtro);
+        return [libro.codigo, libro.titulo, libro.autor, editorial, asignatura, estado]
+            .some(valor => String(valor ?? "").toLowerCase().includes(filtro));
     });
 
-    if (librosFiltrados.length === 0) {
+    if (filtradas.length === 0) {
         tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>No se encontraron libros que coincidan con la búsqueda.</td></tr>";
         return;
     }
 
-    librosFiltrados.forEach(libro => {
-        const editorialObj = db_tablas_maestras.editoriales.find(e => e.id === libro.id_editorial);
-        const asignaturaObj = db_tablas_maestras.asignatura.find(a => a.id === libro.id_asignatura);
-        const estadoObj = db_tablas_maestras.estados.find(es => es.id === libro.id_estado);
-
-        const nombreEditorial = editorialObj ? editorialObj.nombre : `Editorial #${libro.id_editorial}`;
-        const nombreAsignatura = asignaturaObj ? asignaturaObj.nombre : `Asignatura #${libro.id_asignatura}`;
-        const condicionEstado = estadoObj ? estadoObj.condicion : '1 usado/nuevo';
-
+    filtradas.forEach(({ libro, editorial, asignatura, estado }) => {
         const fila = document.createElement("tr");
         fila.innerHTML = `
-            <td>${libro.codigo}</td>
-            <td>${libro.titulo}</td>
-            <td>${libro.autor}</td>
-            <td>${nombreEditorial}</td>
-            <td>${nombreAsignatura}</td>
-            <td>${libro.cantidad}</td>
-            <td>${libro.cantidad_disponible}</td>
-            <td>${condicionEstado}</td>
-            <td><button type="button" class="btn" data-accion="eliminar-libro" data-codigo="${libro.codigo}">Eliminar</button></td>
+            <td>${escaparHTML(libro.codigo)}</td>
+            <td>${escaparHTML(libro.titulo)}</td>
+            <td>${escaparHTML(libro.autor)}</td>
+            <td>${escaparHTML(editorial || "—")}</td>
+            <td>${escaparHTML(asignatura || "—")}</td>
+            <td>${escaparHTML(libro.cantidad)}</td>
+            <td>${escaparHTML(libro.cantidad_disponible)}</td>
+            <td>${escaparHTML(estado || "—")}</td>
+            <td>
+                <div class="acciones-fila">
+                    <button type="button" class="btn" data-accion="editar-libro" data-codigo="${escaparHTML(libro.codigo)}">Editar</button>
+                    <button type="button" class="btn" data-accion="eliminar-libro" data-codigo="${escaparHTML(libro.codigo)}">Eliminar</button>
+                </div>
+            </td>
         `;
         tbody.appendChild(fila);
     });
 }
 
 /**
- * Agrega un nuevo libro al inventario previa validación
+ * Carga las editoriales y asignaturas existentes como sugerencias del formulario,
+ * para reutilizarlas en lugar de crear variantes ("Economia" / "Economía").
  */
-export async function agregarLibroAlInventario(evento, reloadCallback) {
+export function actualizarSugerencias() {
+    const llenar = (idLista, items) => {
+        const lista = document.getElementById(idLista);
+        if (!lista) return;
+        lista.innerHTML = items.map(item => `<option value="${escaparHTML(item.nombre)}"></option>`).join("");
+    };
+    llenar("lista-editoriales", db_tablas_maestras.editoriales);
+    llenar("lista-asignaturas", db_tablas_maestras.asignatura);
+}
+
+function camposFormulario() {
+    return {
+        id: document.getElementById("libro-id"),
+        titulo: document.getElementById("libro-titulo"),
+        autor: document.getElementById("libro-autor"),
+        editorial: document.getElementById("libro-editorial"),
+        asignatura: document.getElementById("libro-asignatura"),
+        cantidad: document.getElementById("libro-cantidad"),
+        estado: document.getElementById("libro-estado")
+    };
+}
+
+/** Deja el formulario en modo "agregar", vacío */
+export function cancelarEdicionLibro() {
+    const campos = camposFormulario();
+    codigoEnEdicion = null;
+
+    Object.values(campos).forEach(campo => { if (campo && campo !== campos.estado) campo.value = ""; });
+    if (campos.id) campos.id.readOnly = false;
+    if (campos.estado) {
+        // Se quita la opción temporal que se agrega al editar un libro con un estado distinto de Nuevo/Usado
+        campos.estado.querySelectorAll("option[data-temporal]").forEach(opcion => opcion.remove());
+        campos.estado.value = "Nuevo";
+    }
+
+    const titulo = document.getElementById("titulo-form-libro");
+    const guardar = document.getElementById("btn-guardar-libro");
+    const cancelar = document.getElementById("btn-cancelar-edicion");
+    if (titulo) titulo.textContent = "Agregar Nuevo Libro";
+    if (guardar) guardar.textContent = "Guardar en Inventario";
+    if (cancelar) cancelar.hidden = true;
+}
+
+/** Pasa el formulario a modo "editar" con los datos del libro elegido */
+export function iniciarEdicionLibro(codigo) {
+    const libro = inventarioLibros.find(l => Number(l.codigo) === Number(codigo));
+    if (!libro) {
+        mostrarNotificacion("No se encontró el libro a editar.", "error");
+        return;
+    }
+    const campos = camposFormulario();
+    if (Object.values(campos).some(campo => !campo)) return;
+
+    cancelarEdicionLibro();
+    codigoEnEdicion = Number(libro.codigo);
+
+    campos.id.value = libro.codigo;
+    campos.id.readOnly = true; // el código identifica al libro y sus reservas: no se cambia
+    campos.titulo.value = libro.titulo;
+    campos.autor.value = libro.autor;
+    campos.editorial.value = nombreDe(db_tablas_maestras.editoriales, libro.id_editorial, "nombre");
+    campos.asignatura.value = nombreDe(db_tablas_maestras.asignatura, libro.id_asignatura, "nombre");
+    campos.cantidad.value = libro.cantidad;
+
+    // Si el libro tiene un estado fuera de Nuevo/Usado (p. ej. "1 usado/nuevo") se conserva tal cual
+    const estado = nombreDe(db_tablas_maestras.estados, libro.id_estado, "condicion") || "Nuevo";
+    if (![...campos.estado.options].some(opcion => opcion.value === estado)) {
+        const opcion = new Option(estado, estado);
+        opcion.dataset.temporal = "1";
+        campos.estado.add(opcion);
+    }
+    campos.estado.value = estado;
+
+    document.getElementById("titulo-form-libro").textContent = `Editar libro #${libro.codigo}`;
+    document.getElementById("btn-guardar-libro").textContent = "Guardar cambios";
+    document.getElementById("btn-cancelar-edicion").hidden = false;
+    document.getElementById("form-libro").scrollIntoView({ behavior: "smooth", block: "center" });
+    campos.titulo.focus();
+}
+
+/**
+ * Agrega un libro nuevo o guarda los cambios del que se está editando, según el modo del formulario
+ */
+export async function guardarLibroDelFormulario(evento, reloadCallback) {
     if (evento && typeof evento.preventDefault === 'function') {
         evento.preventDefault();
     }
 
-    const inputId = document.getElementById("libro-id");
-    const inputTitulo = document.getElementById("libro-titulo");
-    const inputAutor = document.getElementById("libro-autor");
-    const inputEditorial = document.getElementById("libro-editorial");
-    const inputAsignatura = document.getElementById("libro-asignatura");
-    const inputCantidad = document.getElementById("libro-cantidad");
-    const inputEstado = document.getElementById("libro-estado");
-
-    if (!inputId || !inputTitulo || !inputAutor || !inputEditorial || !inputAsignatura || !inputCantidad || !inputEstado) {
+    const campos = camposFormulario();
+    if (Object.values(campos).some(campo => !campo)) {
         mostrarNotificacion("Error de interfaz: faltan campos en el formulario de inventario.", "error");
         return;
     }
 
-    const codigoStr = inputId.value.trim();
-    const codigo = parseInt(codigoStr, 10);
-    const titulo = inputTitulo.value.trim();
-    const autor = inputAutor.value.trim();
-    const editorial = inputEditorial.value.trim();
-    const asignatura = inputAsignatura.value.trim();
-    const cantidad = parseInt(inputCantidad.value, 10);
-    const estado = inputEstado.value.trim();
+    const codigo = parseInt(campos.id.value.trim(), 10);
+    const libro = {
+        codigo,
+        titulo: campos.titulo.value.trim(),
+        autor: campos.autor.value.trim(),
+        editorial: campos.editorial.value.trim(),
+        asignatura: campos.asignatura.value.trim(),
+        cantidad: parseInt(campos.cantidad.value, 10),
+        estado: campos.estado.value.trim()
+    };
 
-    if (Number.isNaN(codigo) || !titulo || !autor || !editorial || !asignatura || Number.isNaN(cantidad) || cantidad < 1) {
+    if (Number.isNaN(codigo) || !libro.titulo || !libro.autor || !libro.editorial || !libro.asignatura || Number.isNaN(libro.cantidad) || libro.cantidad < 1) {
         mostrarNotificacion("Por favor, completa todos los campos con valores válidos. El código de libro debe ser numérico.", "error");
         return;
     }
 
-    const existe = inventarioLibros.some(libro => Number(libro.codigo) === codigo);
-    if (existe) {
+    const editando = codigoEnEdicion !== null;
+    if (!editando && inventarioLibros.some(l => Number(l.codigo) === codigo)) {
         mostrarNotificacion(`El código "${codigo}" ya existe en el inventario.`, "error");
         return;
     }
 
-    const nuevoLibro = {
-        codigo,
-        titulo,
-        autor,
-        id_editorial: editorial,
-        cantidad,
-        cantidad_disponible: cantidad,
-        id_estado: 1,
-        id_asignatura: asignatura
-    };
-
-    const res = await ipcService.addLibro(nuevoLibro);
+    const res = editando ? await ipcService.updateLibro(libro) : await ipcService.addLibro(libro);
     if (res.success) {
         if (typeof reloadCallback === 'function') {
             await reloadCallback();
         }
-
-        inputId.value = "";
-        inputTitulo.value = "";
-        inputAutor.value = "";
-        inputEditorial.value = "";
-        inputAsignatura.value = "";
-        inputCantidad.value = "";
-        inputEstado.value = "Nuevo";
-
-        mostrarNotificacion("Libro agregado correctamente al inventario.", "success");
+        cancelarEdicionLibro();
+        mostrarNotificacion(editando ? "Cambios guardados correctamente." : "Libro agregado correctamente al inventario.", "success");
     } else {
-        mostrarNotificacion("Error al guardar libro en la BBDD: " + res.error, "error");
+        mostrarNotificacion("Error al guardar el libro: " + res.error, "error", 5000);
     }
 }
 
@@ -156,15 +213,16 @@ export function eliminarLibroDelInventario(codigo, reloadCallback) {
         return;
     }
 
-    mostrarConfirmacion(`¿Deseas eliminar el libro "${libro.titulo}" del catálogo de SQLite?`, async () => {
+    mostrarConfirmacion(`¿Deseas eliminar el libro "${libro.titulo}" del catálogo?`, async () => {
         const res = await ipcService.deleteLibro(codigoBuscado);
         if (res.success) {
+            if (codigoEnEdicion === codigoBuscado) cancelarEdicionLibro();
             if (typeof reloadCallback === 'function') {
                 await reloadCallback();
             }
             mostrarNotificacion("Libro eliminado del catálogo.", "success");
         } else {
-            mostrarNotificacion("Error al eliminar libro: " + res.error, "error");
+            mostrarNotificacion("No se pudo eliminar: " + res.error, "error", 5000);
         }
     });
 }

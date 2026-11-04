@@ -1,27 +1,30 @@
 import { db_tablas_maestras, inventarioLibros, historialReservas } from './state.js';
 import { ipcService } from './services/ipcService.js';
 import { mostrarNotificacion } from './ui/notificaciones.js';
-import { 
-    mostrarConfirmacion, 
-    cerrarConfirmacion, 
-    ejecutarConfirmacion, 
-    cerrarModalDevolucion 
+import {
+    mostrarConfirmacion,
+    cerrarConfirmacion,
+    ejecutarConfirmacion,
+    cerrarModalDevolucion
 } from './ui/modales.js';
-import { 
-    actualizarTablaInventario, 
-    agregarLibroAlInventario, 
-    eliminarLibroDelInventario 
+import {
+    actualizarTablaInventario,
+    actualizarSugerencias,
+    guardarLibroDelFormulario,
+    iniciarEdicionLibro,
+    cancelarEdicionLibro,
+    eliminarLibroDelInventario
 } from './modules/inventario.js';
-import { 
-    actualizarTablaReservas, 
-    registrarNuevaReserva, 
-    confirmarDevolucionReserva, 
-    limpiarHistorialReservasDevueltas 
+import {
+    actualizarTablaReservas,
+    registrarNuevaReserva,
+    confirmarDevolucionReserva,
+    limpiarHistorialReservasDevueltas
 } from './modules/reservas.js';
 
 
  // Carga y sincroniza los datos relacionales desde la base de datos SQLite
- 
+
 async function cargarDatosDesdeSQLite() {
     try {
         console.log("Cargando datos relacionales desde la base de datos SQLite...");
@@ -35,6 +38,7 @@ async function cargarDatosDesdeSQLite() {
             db_tablas_maestras.asignatura.push(...(maestras.asignatura || []));
             db_tablas_maestras.editoriales.length = 0;
             db_tablas_maestras.editoriales.push(...(maestras.editoriales || []));
+            actualizarSugerencias();
         }
 
         // 2. Cargar inventario de libros
@@ -58,52 +62,106 @@ async function cargarDatosDesdeSQLite() {
     }
 }
 
+// ==========================================
+// ESTADO DE LA SINCRONIZACIÓN CON EXCEL
+// ==========================================
+
+let ultimoEstadoSync = null;
+
+function mostrarEstadoSync(estado) {
+    const indicador = document.getElementById("estado-sync");
+    if (!indicador || !estado) return;
+
+    indicador.className = `estado-sync estado-sync-${estado.estado}`;
+    indicador.textContent = estado.mensaje || "Sincronización con Excel inactiva";
+    indicador.title = estado.archivo ? `Archivo de sincronización: ${estado.archivo}` : "";
+
+    // Solo se avisa con un toast cuando el estado cambia a algo que requiere atención (o se resuelve)
+    if (ultimoEstadoSync !== null && ultimoEstadoSync !== estado.estado) {
+        if (estado.estado === "bloqueado") {
+            mostrarNotificacion(estado.mensaje, "info", 6000);
+        } else if (estado.estado === "error") {
+            mostrarNotificacion(estado.mensaje, "error", 7000);
+        } else if (estado.estado === "sincronizado" && ultimoEstadoSync === "bloqueado") {
+            mostrarNotificacion("Los cambios pendientes se copiaron al CSV de Excel.", "success");
+        }
+    }
+    ultimoEstadoSync = estado.estado;
+}
+
+/**
+ * Informa el resultado de una importación (manual o detectada al guardar en Excel):
+ * resumen de cambios, filas ignoradas y advertencias.
+ */
+function informarImportacion(prefijo, mensaje, resumen) {
+    const errores = resumen?.errores || [];
+    const advertencias = resumen?.advertencias || [];
+
+    if (mensaje) {
+        mostrarNotificacion(`${prefijo}: ${mensaje}.`, "success", 5000);
+    }
+    if (errores.length) {
+        const detalle = errores.slice(0, 3).map(e => `línea ${e.linea}: ${e.motivo}`).join(" · ");
+        const resto = errores.length > 3 ? ` (y ${errores.length - 3} más)` : "";
+        mostrarNotificacion(`Filas ignoradas — ${detalle}${resto}`, "error", 10000);
+    }
+    if (advertencias.length) {
+        const resto = advertencias.length > 1 ? ` (y ${advertencias.length - 1} aviso(s) más)` : "";
+        mostrarNotificacion(advertencias[0] + resto, "info", 9000);
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     console.log("Inicializando el Sistema de Gestión con persistencia SQLite y Control de Reservas...");
     cerrarModalDevolucion();
 
     // Carga de datos inicial
     cargarDatosDesdeSQLite();
+    ipcService.getEstadoSync().then(mostrarEstadoSync).catch(() => {});
 
     // 1. Escuchar actualizaciones en tiempo real desde el Main Process
-    ipcService.onDbActualizada(() => {
+    ipcService.onDbActualizada(async (info) => {
         console.log("Base de datos física actualizada. Recargando UI...");
-        cargarDatosDesdeSQLite();
-        mostrarNotificacion("Catálogo sincronizado automáticamente con Excel.", "success");
+        await cargarDatosDesdeSQLite();
+        informarImportacion("Excel", info?.mensaje || "catálogo sincronizado", info);
     });
+    ipcService.onSyncEstado(mostrarEstadoSync);
 
-    // 2. Control de carga manual de CSV (Excel) mediante selector nativo
-    const inputArchivo = document.getElementById("archivo-excel-libros");
-    if (inputArchivo) {
-        inputArchivo.addEventListener("click", async (evento) => {
-            evento.preventDefault();
+    // 2. Importar un CSV elegido con el selector nativo (se fusiona: nunca borra libros)
+    const btnImportar = document.getElementById("btn-importar-csv");
+    if (btnImportar) {
+        btnImportar.addEventListener("click", async () => {
             const res = await ipcService.seleccionarYCargarCSV();
-            if (res && res.success) {
+            if (res.canceled) return;
+            if (res.success) {
                 await cargarDatosDesdeSQLite();
-                mostrarNotificacion("Catálogo importado y guardado en SQLite con éxito.", "success");
-            } else if (res && res.error) {
-                mostrarNotificacion("Error al importar el archivo: " + res.error, "error");
+                informarImportacion("Importación", res.mensaje, res.resumen);
+            } else {
+                mostrarNotificacion("Error al importar el archivo: " + res.error, "error", 6000);
             }
         });
     }
 
-    // 3. Botón para cargar CSV por defecto
-    const btnCargarPredef = document.getElementById("btn-cargar-predef");
-    if (btnCargarPredef) {
-        btnCargarPredef.addEventListener("click", () => {
-            mostrarConfirmacion("¿Deseas sincronizar la base de datos con el archivo CSV por defecto?", async () => {
-                const res = await ipcService.cargarCSVManual(null);
-                if (res.success) {
-                    await cargarDatosDesdeSQLite();
-                    mostrarNotificacion("Base de datos sincronizada con el CSV por defecto.", "success");
-                } else {
-                    mostrarNotificacion("Error al sincronizar: " + res.error, "error");
+    // 3. Sincronizar ahora con el CSV de Excel
+    const btnSincronizar = document.getElementById("btn-sincronizar");
+    if (btnSincronizar) {
+        btnSincronizar.addEventListener("click", () => {
+            mostrarConfirmacion(
+                "Se leerá el CSV de Excel y la base quedará igual a él. Los libros que ya no figuren en el archivo y no tengan reservas se eliminarán (antes se guarda un respaldo). ¿Continuar?",
+                async () => {
+                    const res = await ipcService.sincronizarAhora();
+                    if (res.success) {
+                        await cargarDatosDesdeSQLite();
+                        informarImportacion("Sincronización", res.mensaje, res.resumen);
+                    } else {
+                        mostrarNotificacion("Error al sincronizar: " + res.error, "error", 6000);
+                    }
                 }
-            });
+            );
         });
     }
 
-    // 4. Botón para exportar base de datos a CSV
+    // 4. Exportar la base al CSV ahora mismo
     const btnExportarCsv = document.getElementById("btn-exportar-csv");
     if (btnExportarCsv) {
         btnExportarCsv.addEventListener("click", async () => {
@@ -111,31 +169,50 @@ document.addEventListener("DOMContentLoaded", () => {
             if (res.success) {
                 mostrarNotificacion("Inventario exportado al archivo CSV de Excel correctamente.", "success");
             } else {
-                mostrarNotificacion("Error al exportar inventario: " + res.error, "error");
+                mostrarNotificacion("No se pudo exportar: " + res.error, "error", 6000);
             }
         });
     }
 
-    // 5. Formulario para agregar nuevo libro
+    // 5. Abrir el CSV con el programa asociado (Excel)
+    const btnAbrirCsv = document.getElementById("btn-abrir-csv");
+    if (btnAbrirCsv) {
+        btnAbrirCsv.addEventListener("click", async () => {
+            const res = await ipcService.abrirCSV();
+            if (!res.success) {
+                mostrarNotificacion("No se pudo abrir el CSV: " + res.error, "error", 6000);
+            }
+        });
+    }
+
+    // 6. Formulario para agregar o editar un libro
     const formLibro = document.getElementById("form-libro");
     if (formLibro) {
         formLibro.addEventListener("submit", (evento) => {
-            agregarLibroAlInventario(evento, cargarDatosDesdeSQLite);
+            guardarLibroDelFormulario(evento, cargarDatosDesdeSQLite);
         });
     }
 
-    // 6. Delegación de evento click para eliminar libro del inventario
+    const btnCancelarEdicion = document.getElementById("btn-cancelar-edicion");
+    if (btnCancelarEdicion) {
+        btnCancelarEdicion.addEventListener("click", cancelarEdicionLibro);
+    }
+
+    // 7. Delegación de eventos para editar / eliminar libros del inventario
     const tbodyInventario = document.querySelector("#tabla-inventario tbody");
     if (tbodyInventario) {
         tbodyInventario.addEventListener("click", (evento) => {
-            const boton = evento.target.closest("button[data-accion='eliminar-libro']");
-            if (boton) {
+            const boton = evento.target.closest("button[data-accion]");
+            if (!boton) return;
+            if (boton.dataset.accion === "eliminar-libro") {
                 eliminarLibroDelInventario(boton.dataset.codigo, cargarDatosDesdeSQLite);
+            } else if (boton.dataset.accion === "editar-libro") {
+                iniciarEdicionLibro(boton.dataset.codigo);
             }
         });
     }
 
-    // 7. Buscador en tiempo real para filtrar inventario y reservas por usuario
+    // 8. Buscador en tiempo real para filtrar inventario y reservas por usuario
     const buscadorLibros = document.getElementById("buscador-libros");
     if (buscadorLibros) {
         buscadorLibros.addEventListener("input", () => {
@@ -157,7 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 8. Botón confirmar reserva
+    // 9. Botón confirmar reserva
     const btnConfirmar = document.getElementById("btn-confirmar-reserva");
     if (btnConfirmar) {
         btnConfirmar.addEventListener("click", () => {
@@ -165,7 +242,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 9. Botón limpiar historial devueltas
+    // 10. Botón limpiar historial devueltas
     const btnLimpiarHistorial = document.getElementById("btn-limpiar-historial");
     if (btnLimpiarHistorial) {
         btnLimpiarHistorial.addEventListener("click", () => {
@@ -173,7 +250,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 10. Botones y eventos de modales
+    // 11. Botones y eventos de modales
     const btnCancelarDevolucion = document.getElementById("btn-cancelar-devolucion");
     const btnConfirmarDevolucion = document.getElementById("btn-confirmar-devolucion");
     const modalDevolucion = document.getElementById("modal-devolucion");

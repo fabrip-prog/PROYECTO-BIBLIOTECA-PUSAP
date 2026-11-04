@@ -1,75 +1,247 @@
 import path from 'path';
 import fs from 'fs';
 import initSqlJs from 'sql.js';
-import { app } from 'electron';
 
-// Directorio raíz de la aplicación (donde residen index.html, etc.)
-export const rootDir = app.getAppPath();
-// En modo empaquetado (.exe), las bases de datos y CSV se guardan junto al ejecutable o directorio de usuario
-export const userDir = app.isPackaged ? path.dirname(process.execPath) : rootDir;
+// Este módulo no depende de Electron: las rutas se configuran desde main.js (y desde los tests).
 
-export const dbPath = path.join(userDir, 'biblioteca.db');
-export const csvPath = path.join(userDir, 'Base_Datos_Libros_pusap.csv');
+export const rutas = { root: '', user: '', db: '', csv: '', respaldos: '' };
 
-// Lista de rutas posibles donde puede ubicarse el CSV para vigilar y sincronizar
-export const csvPathsCandidates = Array.from(new Set([
-    csvPath,
-    path.join(rootDir, 'Base_Datos_Libros_pusap.csv'),
-    path.resolve(userDir, '../../Base_Datos_Libros_pusap.csv'),
-    path.join(process.cwd(), 'Base_Datos_Libros_pusap.csv')
-])).filter(Boolean);
+// Mensajes para mostrar al usuario si al arrancar hubo que recuperar o recrear la base
+export const avisosArranque = [];
 
-function asegurarArchivosPersistentes() {
-    if (app.isPackaged) {
-        const bundledDb = path.join(rootDir, 'biblioteca.db');
-        const bundledCsv = path.join(rootDir, 'Base_Datos_Libros_pusap.csv');
+const NOMBRE_CSV = 'Base_Datos_Libros_pusap.csv';
 
-        if (!fs.existsSync(dbPath) && fs.existsSync(bundledDb)) {
-            try {
-                fs.copyFileSync(bundledDb, dbPath);
-            } catch (err) {
-                console.error("Error copiando biblioteca.db base:", err);
+/**
+ * Define dónde viven la base y el CSV.
+ * - rootDir: carpeta de la app (index.html, node_modules).
+ * - userDir: carpeta de datos (junto al .exe en modo empaquetado, la raíz del proyecto en desarrollo).
+ * Un archivo opcional `biblioteca.config.json` en userDir puede apuntar el CSV a otra ruta:
+ *   { "csv": "D:\\Compartido\\Base_Datos_Libros_pusap.csv" }
+ */
+export function configurarRutas({ rootDir, userDir, empaquetado = false }) {
+    rutas.root = rootDir;
+    rutas.user = userDir;
+    rutas.db = path.join(userDir, 'biblioteca.db');
+    rutas.csv = path.join(userDir, NOMBRE_CSV);
+    rutas.respaldos = path.join(userDir, 'respaldos');
+
+    const archivoConfig = path.join(userDir, 'biblioteca.config.json');
+    if (fs.existsSync(archivoConfig)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(archivoConfig, 'utf-8'));
+            if (typeof config.csv === 'string' && config.csv.trim()) {
+                rutas.csv = path.resolve(userDir, config.csv.trim());
             }
+        } catch (err) {
+            avisosArranque.push(`No se pudo leer biblioteca.config.json (${err.message}). Se usa la ruta del CSV por defecto.`);
         }
-        if (!fs.existsSync(csvPath) && fs.existsSync(bundledCsv)) {
-            try {
-                fs.copyFileSync(bundledCsv, csvPath);
-            } catch (err) {
-                console.error("Error copiando Base_Datos_Libros_pusap.csv base:", err);
+    }
+
+    // El .exe trae una copia inicial de los datos: se copia a la carpeta de datos la primera vez
+    if (empaquetado) {
+        const copiar = (nombre, destino) => {
+            const origen = path.join(rootDir, nombre);
+            if (!fs.existsSync(destino) && fs.existsSync(origen)) {
+                try { fs.copyFileSync(origen, destino); } catch (err) { console.error(`Error copiando ${nombre} base:`, err); }
             }
-        }
+        };
+        copiar('biblioteca.db', rutas.db);
+        copiar(NOMBRE_CSV, rutas.csv);
     }
 }
 
+// ---------------------------------------------------------------------------
+// Esquema (misma definición que crear_y_cargarBBDD, con índices y tabla meta)
+// ---------------------------------------------------------------------------
+const ESQUEMA = `
+CREATE TABLE IF NOT EXISTS "estados" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "condicion" TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS "asignatura" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "nombre" TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS "editoriales" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "nombre" TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS "libros" (
+    "codigo" INTEGER PRIMARY KEY,
+    "titulo" TEXT NOT NULL,
+    "autor" TEXT NOT NULL,
+    "id_editorial" INTEGER,
+    "cantidad" INTEGER DEFAULT 1,
+    "cantidad_disponible" INTEGER DEFAULT 1,
+    "id_estado" INTEGER,
+    "numero_curso" INTEGER,
+    "id_asignatura" INTEGER,
+    FOREIGN KEY("id_asignatura") REFERENCES "asignatura"("id"),
+    FOREIGN KEY("id_editorial") REFERENCES "editoriales"("id"),
+    FOREIGN KEY("id_estado") REFERENCES "estados"("id"),
+    CONSTRAINT chk_stock_positivo CHECK ("cantidad" >= 0),
+    CONSTRAINT chk_disponible_positivo CHECK ("cantidad_disponible" >= 0),
+    CONSTRAINT chk_consistencia_stock CHECK ("cantidad_disponible" <= "cantidad")
+);
+CREATE TABLE IF NOT EXISTS "reservas" (
+    "id_reserva" TEXT PRIMARY KEY,
+    "codigo_libro" INTEGER NOT NULL,
+    "usuario" TEXT NOT NULL,
+    "fecha_reserva" TEXT NOT NULL,
+    "estado" TEXT NOT NULL DEFAULT 'Activa',
+    "observaciones" TEXT DEFAULT '',
+    "fecha_devolucion" TEXT DEFAULT '',
+    FOREIGN KEY("codigo_libro") REFERENCES "libros"("codigo")
+);
+CREATE TABLE IF NOT EXISTS "meta" (
+    "clave" TEXT PRIMARY KEY,
+    "valor" TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reservas_libro ON reservas(codigo_libro, estado);
+CREATE INDEX IF NOT EXISTS idx_reservas_estado ON reservas(estado);
+`;
+
+// Tablas maestras: nombre de tabla -> columna de texto (lista cerrada para no interpolar SQL arbitrario)
+const MAESTRAS = { editoriales: 'nombre', asignatura: 'nombre', estados: 'condicion' };
+
 let SQL = null;
 let db = null;
+let profundidadTx = 0;
+
+// ---------------------------------------------------------------------------
+// Archivos: escritura atómica y respaldos
+// ---------------------------------------------------------------------------
 
 /**
- * Inicializa el motor sql.js y la conexión a la base de datos
+ * Escribe en un temporal y lo renombra encima del destino, así un corte de luz o un cierre
+ * a mitad de escritura nunca deja un archivo a medias. Lanza si el destino está bloqueado.
+ */
+export function escribirAtomico(destino, contenido) {
+    const temporal = `${destino}.tmp`;
+    const fd = fs.openSync(temporal, 'w');
+    try {
+        fs.writeSync(fd, contenido);
+        fs.fsyncSync(fd);
+    } finally {
+        fs.closeSync(fd);
+    }
+    try {
+        fs.renameSync(temporal, destino);
+    } catch (err) {
+        try { fs.unlinkSync(temporal); } catch { /* ya no existe */ }
+        throw err;
+    }
+}
+
+function dormirSync(ms) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Exporta la base a bytes. sql.js reinicia los PRAGMA al exportar, por eso se reactivan las claves foráneas. */
+function exportarBytes() {
+    const bytes = Buffer.from(db.export());
+    db.run('PRAGMA foreign_keys = ON');
+    return bytes;
+}
+
+function respaldar(prefijo, sufijo, conservar, bytes) {
+    try {
+        fs.mkdirSync(rutas.respaldos, { recursive: true });
+        const destino = path.join(rutas.respaldos, `${prefijo}-${sufijo}.db`);
+        if (fs.existsSync(destino)) return;
+        fs.writeFileSync(destino, bytes);
+        const viejos = fs.readdirSync(rutas.respaldos)
+            .filter(n => n.startsWith(`${prefijo}-`) && n.endsWith('.db'))
+            .sort()
+            .reverse()
+            .slice(conservar);
+        viejos.forEach(n => { try { fs.unlinkSync(path.join(rutas.respaldos, n)); } catch { /* en uso */ } });
+    } catch (err) {
+        console.warn('No se pudo crear el respaldo:', err.message);
+    }
+}
+
+const dosDigitos = n => String(n).padStart(2, '0');
+function fechaLocal(d = new Date()) {
+    return `${d.getFullYear()}-${dosDigitos(d.getMonth() + 1)}-${dosDigitos(d.getDate())}`;
+}
+
+/** Copia puntual de la base actual; se usa antes de operaciones que pueden borrar libros */
+export function respaldarAntesDe(motivo) {
+    if (!db) return;
+    const d = new Date();
+    const sello = `${fechaLocal(d)}_${dosDigitos(d.getHours())}${dosDigitos(d.getMinutes())}${dosDigitos(d.getSeconds())}`;
+    respaldar(motivo, sello, 5, exportarBytes());
+}
+
+// ---------------------------------------------------------------------------
+// Apertura y recuperación
+// ---------------------------------------------------------------------------
+
+function abrirArchivo(ruta) {
+    const base = new SQL.Database(fs.readFileSync(ruta));
+    const resultado = base.exec('PRAGMA quick_check');
+    if (resultado[0]?.values[0][0] !== 'ok') {
+        base.close();
+        throw new Error('la verificación de integridad falló');
+    }
+    return base;
+}
+
+function abrirBase() {
+    if (!fs.existsSync(rutas.db)) {
+        db = new SQL.Database();
+        return;
+    }
+    try {
+        db = abrirArchivo(rutas.db);
+        return;
+    } catch (err) {
+        console.error('La base de datos no se pudo abrir:', err);
+    }
+
+    // Base dañada: se aparta (no se borra) y se busca el respaldo más reciente que abra bien
+    const apartada = `${rutas.db}.danada-${Date.now()}`;
+    fs.renameSync(rutas.db, apartada);
+    const candidatos = fs.existsSync(rutas.respaldos)
+        ? fs.readdirSync(rutas.respaldos).filter(n => n.endsWith('.db')).sort().reverse()
+        : [];
+    for (const nombre of candidatos) {
+        try {
+            db = abrirArchivo(path.join(rutas.respaldos, nombre));
+            avisosArranque.push(`La base de datos estaba dañada. Se restauró el respaldo "${nombre}". El archivo dañado se guardó como ${path.basename(apartada)}.`);
+            return;
+        } catch { /* probar el siguiente */ }
+    }
+    db = new SQL.Database();
+    avisosArranque.push(`La base de datos estaba dañada y no había respaldos. Se creó una nueva y el catálogo se reconstruirá desde el CSV (las reservas anteriores quedaron en ${path.basename(apartada)}).`);
+}
+
+/**
+ * Inicializa el motor sql.js y abre (o crea) la base de datos
  */
 export async function initDatabase() {
-    asegurarArchivosPersistentes();
-
     if (!SQL) {
-        const wasmPath = path.join(rootDir, 'node_modules/sql.js/dist/sql-wasm.wasm');
+        const wasmPath = path.join(rutas.root, 'node_modules/sql.js/dist/sql-wasm.wasm');
         SQL = await initSqlJs({
-            locateFile: file => {
-                if (file.endsWith('.wasm') && fs.existsSync(wasmPath)) {
-                    return wasmPath;
-                }
-                return file;
-            }
+            locateFile: file => (file.endsWith('.wasm') && fs.existsSync(wasmPath) ? wasmPath : file)
         });
     }
-    if (fs.existsSync(dbPath)) {
-        const filebuffer = fs.readFileSync(dbPath);
-        db = new SQL.Database(filebuffer);
-    } else {
-        db = new SQL.Database();
-    }
-    
-    // Inicializar tablas y datos base si no existen
+    if (db) { try { db.close(); } catch { /* ya cerrada */ } }
+    profundidadTx = 0;
+
+    const existia = fs.existsSync(rutas.db);
+    const avisosPrevios = avisosArranque.length;
+    abrirBase();
+    const recuperada = avisosArranque.length > avisosPrevios;
+    db.run('PRAGMA foreign_keys = ON');
     inicializarBBDD();
+
+    // Un respaldo por día, solo si la base abrió sin problemas (no se respalda algo recién recuperado)
+    if (existia && !recuperada) {
+        respaldar('diario', fechaLocal(), 7, exportarBytes());
+    }
+    guardarEnDisco();
     return db;
 }
 
@@ -78,22 +250,50 @@ export async function initDatabase() {
  */
 export function getDb() {
     if (!db) {
-        throw new Error("La base de datos aún no ha sido inicializada.");
+        throw new Error('La base de datos aún no ha sido inicializada.');
     }
     return db;
 }
 
 /**
- * Guarda el estado actual de la base de datos a disco y sincroniza el CSV
+ * Guarda el estado actual de la base de datos a disco de forma atómica
  */
-export function saveToDisk(exportarCSVFn) {
+export function guardarEnDisco() {
     if (!db) return;
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
-    
-    if (typeof exportarCSVFn === 'function') {
-        exportarCSVFn(csvPath);
+    if (profundidadTx > 0) throw new Error('No se puede guardar a disco dentro de una transacción.');
+    const bytes = exportarBytes();
+    let ultimoError = null;
+    for (let intento = 0; intento < 4; intento++) {
+        try {
+            escribirAtomico(rutas.db, bytes);
+            return;
+        } catch (err) {
+            ultimoError = err;
+            // OneDrive o un antivirus pueden retener el archivo unos milisegundos
+            if (!['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) break;
+            dormirSync(60 * (intento + 1));
+        }
+    }
+    throw ultimoError;
+}
+
+/**
+ * Ejecuta `fn` dentro de una transacción: todo o nada. Si ya hay una abierta, participa de ella.
+ */
+export function transaccion(fn) {
+    const database = getDb();
+    if (profundidadTx > 0) return fn();
+    database.run('BEGIN');
+    profundidadTx++;
+    try {
+        const resultado = fn();
+        database.run('COMMIT');
+        return resultado;
+    } catch (err) {
+        try { database.run('ROLLBACK'); } catch { /* sin transacción activa */ }
+        throw err;
+    } finally {
+        profundidadTx--;
     }
 }
 
@@ -101,229 +301,79 @@ export function saveToDisk(exportarCSVFn) {
  * Ejecuta una consulta SQL y retorna todas las filas como objetos
  */
 export function dbQueryAll(sql, params = []) {
-    const database = getDb();
-    const stmt = database.prepare(sql);
-    stmt.bind(params);
-    const rows = [];
-    while (stmt.step()) {
-        rows.push(stmt.getAsObject());
+    const stmt = getDb().prepare(sql);
+    try {
+        stmt.bind(params);
+        const filas = [];
+        while (stmt.step()) filas.push(stmt.getAsObject());
+        return filas;
+    } finally {
+        stmt.free();
     }
-    stmt.free();
-    return rows;
 }
 
 /**
  * Ejecuta una consulta SQL y retorna el primer resultado como objeto
  */
 export function dbQueryGet(sql, params = []) {
-    const database = getDb();
-    const stmt = database.prepare(sql);
-    stmt.bind(params);
-    let result = null;
-    if (stmt.step()) {
-        result = stmt.getAsObject();
+    const stmt = getDb().prepare(sql);
+    try {
+        stmt.bind(params);
+        return stmt.step() ? stmt.getAsObject() : null;
+    } finally {
+        stmt.free();
     }
-    stmt.free();
-    return result;
 }
 
 /**
- * Resuelve o crea el ID de un registro en una tabla maestra (ej: editoriales, asignatura)
+ * Resuelve (o crea) el ID de un registro en una tabla maestra (editoriales, asignatura, estados)
  */
-export function resolveId(table, name) {
-    if (!name) return null;
-    const trimmedName = name.trim();
-    const database = getDb();
-    const existing = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [trimmedName]);
-    if (existing) return existing.id;
-    database.run(`INSERT OR IGNORE INTO "${table}" (nombre) VALUES (?)`, [trimmedName]);
-    const afterInsert = dbQueryGet(`SELECT id FROM "${table}" WHERE LOWER(nombre) = LOWER(?)`, [trimmedName]);
-    return afterInsert ? afterInsert.id : null;
+export function resolveId(tabla, valor) {
+    const columna = MAESTRAS[tabla];
+    if (!columna) throw new Error(`Tabla maestra desconocida: ${tabla}`);
+    const nombre = String(valor ?? '').trim().replace(/\s+/g, ' ');
+    if (!nombre) return null;
+
+    const existente = dbQueryGet(`SELECT id FROM "${tabla}" WHERE LOWER("${columna}") = LOWER(?)`, [nombre]);
+    if (existente) return existente.id;
+    getDb().run(`INSERT INTO "${tabla}" ("${columna}") VALUES (?)`, [nombre]);
+    return dbQueryGet('SELECT last_insert_rowid() AS id').id;
+}
+
+export function getMeta(clave) {
+    const fila = dbQueryGet('SELECT valor FROM meta WHERE clave = ?', [clave]);
+    return fila ? fila.valor : null;
+}
+
+/** Guarda un dato interno de sincronización. Se persiste en el próximo guardarEnDisco() */
+export function setMeta(clave, valor) {
+    getDb().run(
+        'INSERT INTO meta (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor',
+        [clave, valor === null || valor === undefined ? null : String(valor)]
+    );
 }
 
 /**
- * Crea la estructura inicial de tablas y puebla datos por defecto si la BD está vacía
+ * La disponibilidad no es un dato libre: es la cantidad menos las reservas sin devolver.
+ * Recalcularla desde las reservas evita que el stock se desfase (por ediciones en Excel, cortes, etc.).
+ */
+export function recalcularDisponibilidad(codigo = null) {
+    const filtro = codigo === null ? '' : ' WHERE codigo = ?';
+    getDb().run(`
+        UPDATE libros SET cantidad_disponible = MAX(0, MIN(cantidad, cantidad - (
+            SELECT COUNT(*) FROM reservas r
+            WHERE r.codigo_libro = libros.codigo AND r.estado <> 'Devuelta'
+        )))${filtro}
+    `, codigo === null ? [] : [codigo]);
+}
+
+/**
+ * Crea la estructura si falta y deja la base consistente
  */
 export function inicializarBBDD() {
     const database = getDb();
-    
-    database.run(`
-        CREATE TABLE IF NOT EXISTS "estados" (
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "condicion" TEXT NOT NULL UNIQUE
-        );
-    `);
-    database.run(`
-        CREATE TABLE IF NOT EXISTS "asignatura" (
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "nombre" TEXT NOT NULL UNIQUE
-        );
-    `);
-    database.run(`
-        CREATE TABLE IF NOT EXISTS "editoriales" (
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "nombre" TEXT NOT NULL UNIQUE
-        );
-    `);
-    database.run(`
-        CREATE TABLE IF NOT EXISTS "libros" (
-            "codigo" INTEGER PRIMARY KEY,
-            "titulo" TEXT NOT NULL,
-            "autor" TEXT NOT NULL,
-            "id_editorial" INTEGER,
-            "cantidad" INTEGER DEFAULT 1,
-            "cantidad_disponible" INTEGER DEFAULT 1,
-            "id_estado" INTEGER,
-            "numero_curso" INTEGER,
-            "id_asignatura" INTEGER,
-            FOREIGN KEY("id_asignatura") REFERENCES "asignatura"("id"),
-            FOREIGN KEY("id_editorial") REFERENCES "editoriales"("id"),
-            FOREIGN KEY("id_estado") REFERENCES "estados"("id")
-        );
-    `);
-    database.run(`
-        CREATE TABLE IF NOT EXISTS "reservas" (
-            "id_reserva" TEXT PRIMARY KEY,
-            "codigo_libro" TEXT NOT NULL,
-            "usuario" TEXT NOT NULL,
-            "fecha_reserva" TEXT NOT NULL,
-            "estado" TEXT NOT NULL DEFAULT 'Activa',
-            "observaciones" TEXT DEFAULT '',
-            "fecha_devolucion" TEXT DEFAULT '',
-            FOREIGN KEY("codigo_libro") REFERENCES "libros"("codigo")
-        );
-    `);
-
-    // 1. Población de estados si está vacío
-    const checkEstados = dbQueryGet("SELECT count(*) as count FROM estados");
-    if (checkEstados && checkEstados.count === 0) {
-        database.run("INSERT OR IGNORE INTO estados (id, condicion) VALUES (1, '1 usado/nuevo')");
-    }
-
-    // 2. Población de asignaturas si está vacío
-    const checkAsignaturas = dbQueryGet("SELECT count(*) as count FROM asignatura");
-    if (checkAsignaturas && checkAsignaturas.count === 0) {
-        const asignaturas = ['Historia/Economía', 'Derecho', 'Filosofía', 'Economia'];
-        asignaturas.forEach(a => {
-            database.run("INSERT OR IGNORE INTO asignatura (nombre) VALUES (?)", [a]);
-        });
-    }
-
-    // 3. Población de editoriales si está vacío
-    const checkEditoriales = dbQueryGet("SELECT count(*) as count FROM editoriales");
-    if (checkEditoriales && checkEditoriales.count === 0) {
-        const editoriales = [
-            'Siglo Veintiuno de Argentina Editores (en coedición con el Instituto Di Tella)',
-            'Marcos Lerner Editora Cordoba',
-            'LexisNexis Abeledo-Perrot',
-            'LexisNexis',
-            'Virtudes Editorial Universitaria',
-            'Astrea',
-            'Ariel Sociedad Económica.',
-            'Fondo de Cultura Económica'
-        ];
-        editoriales.forEach(e => {
-            database.run("INSERT OR IGNORE INTO editoriales (nombre) VALUES (?)", [e]);
-        });
-    }
-
-    // 4. Población de libros si está vacío
-    const checkLibros = dbQueryGet("SELECT count(*) as count FROM libros");
-    if (checkLibros && checkLibros.count === 0) {
-        if (fs.existsSync(csvPath)) {
-            console.log("Inicializando base de datos desde el archivo CSV existente...");
-            importarCSVSync(csvPath);
-        } else {
-            console.log("No se encontró CSV de inventario. Inyectando catálogo base...");
-            const librosSeguros = [
-                { codigo: 1, titulo: 'Historia Socioeconómica de la Argentina. 1776-1860.', autor: 'Jonathan Brown', id_editorial: 1, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 1 },
-                { codigo: 2, titulo: 'Manual de Derecho Penal- Parte Especial (Segunda Edición)', autor: 'Ricardo C. Nuñez - Victor F. Reinaldi', id_editorial: 2, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-                { codigo: 3, titulo: 'Código Procesal Penal de la Nación. Anotado. Comentado. Concordado. TOMO II', autor: 'Francisco J. D\'Albora - Nicolás F. D\'Albora', id_editorial: 3, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-                { codigo: 4, titulo: 'Tratado de los Cheques', autor: 'Osvaldo R. Gómez Leo', id_editorial: 4, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-                { codigo: 5, titulo: 'Curso de Filosofia', autor: 'Carlos Escobar Saravia', id_editorial: 5, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 3 },
-                { codigo: 6, titulo: 'Títulos de Crédito', autor: 'Ignacio A. Escuti', id_editorial: 6, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 2 },
-                { codigo: 7, titulo: 'El Ciclo de la llusión y el Desencanto', autor: 'Pablo Gerchunoff - Lucas Llach', id_editorial: 7, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 },
-                { codigo: 8, titulo: 'Teoría Microeconómica', autor: 'John P. Gould-Edward P. Lazear', id_editorial: 8, cantidad: 1, cantidad_disponible: 1, id_estado: 1, id_asignatura: 4 }
-            ];
-
-            librosSeguros.forEach(l => {
-                database.run(`
-                    INSERT OR REPLACE INTO libros (codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, id_asignatura)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `, [l.codigo, l.titulo, l.autor, l.id_editorial, l.cantidad, l.cantidad_disponible, l.id_estado, l.id_asignatura]);
-            });
-        }
-    }
-}
-
-/**
- * Importación síncrona inicial para inicializar la BD si no existían datos
- */
-function importarCSVSync(filePath) {
-    try {
-        const content = fs.readFileSync(filePath, { encoding: 'latin1' });
-        const lines = content.split(/\r?\n/);
-        const database = getDb();
-
-        database.run("BEGIN TRANSACTION");
-        for (const line of lines) {
-            const lineaLimpia = line.trim();
-            if (lineaLimpia === "" || 
-                lineaLimpia.startsWith("Plantilla") || 
-                /^;+$/.test(lineaLimpia) || 
-                lineaLimpia.toLowerCase().includes("id / código") || 
-                lineaLimpia.toLowerCase().includes("id_libro") ||
-                lineaLimpia.toLowerCase().includes("título del libro")) {
-                continue;
-            }
-            const celdas = lineaLimpia.split(';');
-            if (celdas.length >= 6) {
-                const codigo = parseInt(celdas[0]);
-                if (Number.isNaN(codigo)) continue;
-
-                const titulo = celdas[1]?.trim();
-                if (!titulo) continue;
-
-                const autor = celdas[2]?.trim() || 'Anónimo';
-                const nombreEditorial = celdas[3]?.trim();
-                const nombreAsignatura = celdas[4]?.trim();
-                const cantidad = parseInt(celdas[5]) || 0;
-                
-                const idEditorial = resolveId('editoriales', nombreEditorial);
-                const idAsignatura = resolveId('asignatura', nombreAsignatura);
-                const idEstado = 1;
-
-                const libroExistente = dbQueryGet("SELECT cantidad, cantidad_disponible FROM libros WHERE codigo = ?", [codigo]);
-                let cantidadDisponible = cantidad;
-
-                if (libroExistente) {
-                    const reservasActivas = libroExistente.cantidad - libroExistente.cantidad_disponible;
-                    cantidadDisponible = Math.max(0, cantidad - reservasActivas);
-                }
-
-                const numeroCurso = parseInt(celdas[8]) || null;
-
-                database.run(`
-                    INSERT OR REPLACE INTO libros (
-                        codigo, titulo, autor, id_editorial, cantidad, cantidad_disponible, id_estado, numero_curso, id_asignatura
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    codigo,
-                    titulo,
-                    autor,
-                    idEditorial,
-                    cantidad,
-                    cantidadDisponible,
-                    idEstado,
-                    numeroCurso,
-                    idAsignatura
-                ]);
-            }
-        }
-        database.run("COMMIT");
-        console.log("Sincronización inicial desde archivo CSV de Excel finalizada.");
-    } catch (err) {
-        if (db) db.run("ROLLBACK");
-        console.error("Error al inicializar catálogo desde CSV:", err);
-    }
+    database.exec(ESQUEMA);
+    database.run("INSERT OR IGNORE INTO estados (condicion) VALUES ('Nuevo')");
+    database.run("INSERT OR IGNORE INTO estados (condicion) VALUES ('Usado')");
+    recalcularDisponibilidad();
 }

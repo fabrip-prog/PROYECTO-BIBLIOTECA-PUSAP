@@ -2,6 +2,16 @@ import { db_tablas_maestras } from './state.js';
 
 export { db_tablas_maestras };
 
+const ENTIDADES_HTML = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/**
+ * Neutraliza cualquier texto antes de insertarlo con innerHTML. Los títulos, autores y usuarios
+ * vienen de la base y del CSV de Excel: sin esto, una celda con HTML se ejecutaría en la interfaz.
+ */
+export function escaparHTML(valor) {
+    return String(valor ?? '').replace(/[&<>"']/g, caracter => ENTIDADES_HTML[caracter]);
+}
+
 export function transformarCSV(textoBruto) {
     const lineas = textoBruto.split(/\r?\n/);
     const matrizDatos = [];

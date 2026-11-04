@@ -2,6 +2,13 @@ import { historialReservas } from '../state.js';
 import { ipcService } from '../services/ipcService.js';
 import { mostrarNotificacion } from '../ui/notificaciones.js';
 import { mostrarConfirmacion, abrirModalDevolucion, cerrarModalDevolucion, getReservaSeleccionadaParaDevolver } from '../ui/modales.js';
+import { escaparHTML } from '../utils.js';
+
+/** "12 · Título del libro": el código solo no dice a quién se le prestó qué */
+function celdaLibro(res) {
+    const titulo = res.tituloLibro ? ` <span class="titulo-libro-reserva">${escaparHTML(res.tituloLibro)}</span>` : "";
+    return `${escaparHTML(res.idLibro)}${titulo}`;
+}
 
 /**
  * Renderiza las tablas de reservas activas y reservas devueltas
@@ -38,17 +45,17 @@ export function actualizarTablaReservas() {
         const mensaje = filtroReservas
             ? `No se encontraron reservas activas para el usuario "${filtroReservas}".`
             : "No hay reservas activas en este momento.";
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">${mensaje}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">${escaparHTML(mensaje)}</td></tr>`;
     } else {
         reservasActivas.forEach(res => {
             const fila = document.createElement("tr");
             fila.innerHTML = `
-                <td>${res.idLibro}</td>
-                <td>${res.idReserva}</td>
-                <td>${res.usuario}</td>
-                <td>${res.fecha}</td>
-                <td><span style="color: #319795; font-weight: bold;">${res.estado}</span></td>
-                <td><button type="button" class="btn" data-accion="devolver-reserva" data-id-reserva="${res.idReserva}">Devolver</button></td>
+                <td>${celdaLibro(res)}</td>
+                <td>${escaparHTML(res.idReserva)}</td>
+                <td>${escaparHTML(res.usuario)}</td>
+                <td>${escaparHTML(res.fecha)}</td>
+                <td><span style="color: #319795; font-weight: bold;">${escaparHTML(res.estado)}</span></td>
+                <td><button type="button" class="btn" data-accion="devolver-reserva" data-id-reserva="${escaparHTML(res.idReserva)}">Devolver</button></td>
             `;
             tbody.appendChild(fila);
         });
@@ -59,17 +66,17 @@ export function actualizarTablaReservas() {
         const mensajeDevueltas = filtroHistorial
             ? `No se encontraron devoluciones en el historial para el usuario "${filtroHistorial}".`
             : "No hay reservas devueltas aún.";
-        tbodyDevueltas.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">${mensajeDevueltas}</td></tr>`;
+        tbodyDevueltas.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 15px;">${escaparHTML(mensajeDevueltas)}</td></tr>`;
     } else {
         reservasDevueltas.forEach(res => {
             const fila = document.createElement("tr");
             fila.innerHTML = `
-                <td>${res.idLibro}</td>
-                <td>${res.idReserva}</td>
-                <td>${res.usuario}</td>
-                <td>${res.fecha}</td>
-                <td>${res.fechaDevolucion || "-"}</td>
-                <td>${res.observaciones || "Sin observaciones"}</td>
+                <td>${celdaLibro(res)}</td>
+                <td>${escaparHTML(res.idReserva)}</td>
+                <td>${escaparHTML(res.usuario)}</td>
+                <td>${escaparHTML(res.fecha)}</td>
+                <td>${escaparHTML(res.fechaDevolucion || "-")}</td>
+                <td>${escaparHTML(res.observaciones || "Sin observaciones")}</td>
             `;
             tbodyDevueltas.appendChild(fila);
         });
@@ -124,7 +131,7 @@ export async function registrarNuevaReserva(reloadCallback) {
 
         mostrarNotificacion("¡Reserva confirmada con éxito!", "success");
     } else {
-        mostrarNotificacion(res.error, "error");
+        mostrarNotificacion(res.error, "error", 5000);
     }
 }
 
@@ -138,10 +145,11 @@ export async function confirmarDevolucionReserva(reloadCallback) {
     const textarea = document.getElementById("observaciones-devolucion");
     const observaciones = textarea ? textarea.value.trim() : "";
 
+    // La fecha de devolución la fija el proceso principal con la hora local (toISOString usa UTC
+    // y, por la noche en Argentina, devolvería el día siguiente)
     const res = await ipcService.devolverReserva({
         idReserva: reserva.idReserva,
-        observaciones: observaciones || "Sin observaciones",
-        fechaDevolucion: new Date().toISOString().split("T")[0]
+        observaciones: observaciones || "Sin observaciones"
     });
 
     if (res.success) {

@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Solo se ejecuta código propio; las fuentes de Google son lo único externo permitido -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:">
     <title>Sistema de Gestión de Biblioteca</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,10 +27,10 @@
             <h2>1. Inventario de Libros</h2>
             
             <form id="form-libro" class="formulario">
-                <h3>Agregar Nuevo Libro</h3>
+                <h3 id="titulo-form-libro">Agregar Nuevo Libro</h3>
                 <div class="grupo-input">
                     <label for="libro-id">ID / Código:</label>
-                    <input type="text" id="libro-id" placeholder="Ej: LIB-0005" required>
+                    <input type="text" id="libro-id" inputmode="numeric" pattern="[0-9]+" title="Solo números" placeholder="Ej: 9" required>
                 </div>
                 <div class="grupo-input">
                     <label for="libro-titulo">Título del Libro:</label>
@@ -40,11 +42,13 @@
                 </div>
                 <div class="grupo-input">
                     <label for="libro-editorial">Editorial:</label>
-                    <input type="text" id="libro-editorial" placeholder="Ej: Emecé" required>
+                    <input type="text" id="libro-editorial" list="lista-editoriales" placeholder="Ej: Emecé" autocomplete="off" required>
+                    <datalist id="lista-editoriales"></datalist>
                 </div>
                 <div class="grupo-input">
                     <label for="libro-asignatura">Asignatura:</label>
-                    <input type="text" id="libro-asignatura" placeholder="Ej: Ficción / Literatura" required>
+                    <input type="text" id="libro-asignatura" list="lista-asignaturas" placeholder="Ej: Ficción / Literatura" autocomplete="off" required>
+                    <datalist id="lista-asignaturas"></datalist>
                 </div>
                 <div class="grupo-input">
                     <label for="libro-cantidad">Cantidad Total:</label>
@@ -57,17 +61,20 @@
                         <option value="Usado">Usado</option>
                     </select>
                 </div>
-                <button type="submit" class="btn">Guardar en Inventario</button>
+                <button type="submit" id="btn-guardar-libro" class="btn">Guardar en Inventario</button>
+                <button type="button" id="btn-cancelar-edicion" class="btn btn-secundario" hidden>Cancelar edición</button>
             </form>
 
             <div class="tabla-contenedor">
                 <h3>Catálogo Disponibilidad</h3>
 
                 <div class="acciones-csv">
-                    <label for="archivo-excel-libros" class="label-csv">Cargar Inventario (CSV): </label>
-                    <input type="file" id="archivo-excel-libros" accept=".csv" class="input-csv">
-                    <button id="btn-cargar-predef" class="btn btn-csv" type="button">Cargar CSV por defecto</button>
-                    <button id="btn-exportar-csv" class="btn btn-csv" type="button">Exportar inventario a CSV</button>
+                    <span class="label-csv">Excel (CSV):</span>
+                    <span id="estado-sync" class="estado-sync estado-sync-inactivo" role="status">Sincronización con Excel inactiva</span>
+                    <button id="btn-abrir-csv" class="btn btn-csv" type="button" title="Abre el archivo CSV con Excel">Abrir en Excel</button>
+                    <button id="btn-sincronizar" class="btn btn-csv" type="button" title="Lee el CSV ahora y deja la base igual a él">Sincronizar ahora</button>
+                    <button id="btn-importar-csv" class="btn btn-csv" type="button" title="Suma al catálogo los libros de otro archivo CSV, sin borrar nada">Importar otro CSV…</button>
+                    <button id="btn-exportar-csv" class="btn btn-csv" type="button" title="Escribe la base en el CSV ahora mismo">Exportar a CSV</button>
                 </div>
 
                 <div class="buscador-contenedor">

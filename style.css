@@ -346,6 +346,32 @@ button[data-accion="eliminar-libro"]:hover {
     box-shadow: 0 6px 14px rgba(225, 29, 72, 0.35) !important;
 }
 
+button[data-accion="editar-libro"] {
+    box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25) !important;
+    height: 34px !important;
+    padding: 0 14px !important;
+    font-size: 13px !important;
+    border-radius: 6px !important;
+    width: auto !important;
+}
+
+/* Editar y Eliminar lado a lado en la columna de acciones */
+.acciones-fila {
+    display: flex;
+    gap: 8px;
+}
+
+/* .btn fija display y por eso anularía el atributo hidden */
+[hidden] {
+    display: none !important;
+}
+
+.titulo-libro-reserva {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 button[data-accion="devolver-reserva"] {
     background: var(--accent-teal-gradient) !important;
     box-shadow: 0 3px 8px rgba(13, 148, 136, 0.25) !important;
@@ -442,6 +468,32 @@ button[data-accion="devolver-reserva"]:hover {
 
 .input-csv::file-selector-button:hover {
     background: #e2e8f0;
+}
+
+/* Indicador del estado de la sincronización con Excel */
+.estado-sync {
+    flex: 1 1 240px;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-muted);
+}
+
+.estado-sync-sincronizado {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.estado-sync-bloqueado {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.estado-sync-error {
+    background: var(--danger-light);
+    color: var(--danger-hover);
 }
 
 .btn-csv {
