@@ -576,6 +576,61 @@ button[data-accion="devolver-reserva"]:hover {
     box-shadow: inset 0 -1px 0 var(--border-color);
 }
 
+/* Inventario: tabla compacta para que entren las 9 columnas sin scroll horizontal.
+   Las columnas de texto tienen un ancho mínimo para que título, autor y editorial
+   no queden partidos en muchos renglones angostos, difíciles de leer. */
+#tabla-inventario th,
+#tabla-inventario td {
+    padding: 10px 5px;
+}
+
+#tabla-inventario th {
+    font-size: 11px;
+    letter-spacing: 0.02em;
+}
+
+#tabla-inventario td {
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: break-word;
+}
+
+/* Código, cantidades y estado: sólo el ancho que necesitan y en un solo renglón */
+#tabla-inventario th:nth-child(1),
+#tabla-inventario th:nth-child(6),
+#tabla-inventario th:nth-child(7),
+#tabla-inventario th:nth-child(8),
+#tabla-inventario th:nth-child(9) {
+    width: 1%;
+}
+
+#tabla-inventario td:nth-child(1),
+#tabla-inventario td:nth-child(6),
+#tabla-inventario td:nth-child(7),
+#tabla-inventario td:nth-child(8) {
+    white-space: nowrap;
+}
+
+#tabla-inventario td:nth-child(1),
+#tabla-inventario td:nth-child(6),
+#tabla-inventario td:nth-child(7) {
+    text-align: center;
+}
+
+/* Columnas de texto: el espacio sobrante se reparte entre ellas, pero nunca por debajo de este mínimo */
+#tabla-inventario th:nth-child(2) { min-width: 210px; }
+#tabla-inventario th:nth-child(3) { min-width: 140px; }
+#tabla-inventario th:nth-child(4) { min-width: 150px; }
+#tabla-inventario th:nth-child(5) { min-width: 112px; }
+
+#tabla-inventario .acciones-fila {
+    gap: 6px;
+}
+
+#tabla-inventario button[data-accion] {
+    padding: 0 8px !important;
+}
+
 table {
     width: 100%;
     border-collapse: separate;
